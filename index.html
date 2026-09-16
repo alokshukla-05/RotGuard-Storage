@@ -1,0 +1,1500 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+
+    <meta charset="UTF-8">
+
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
+
+    <meta
+        name="theme-color"
+        content="#0b1017"
+    >
+
+    <title>
+        SILO Guard | Smart Gas Monitoring
+    </title>
+
+
+    <!-- Google Font -->
+
+    <link
+        rel="preconnect"
+        href="https://fonts.googleapis.com"
+    >
+
+    <link
+        rel="preconnect"
+        href="https://fonts.gstatic.com"
+        crossorigin
+    >
+
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
+        rel="stylesheet"
+    >
+
+
+    <!-- Chart.js -->
+
+    <script
+        src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"
+    ></script>
+
+
+    <!-- CSS -->
+
+    <link
+        rel="stylesheet"
+        href="style.css"
+    >
+
+</head>
+
+
+<body>
+
+
+<!-- ==================================================
+     LOGIN SCREEN
+================================================== -->
+
+<div
+    id="loginScreen"
+    class="login-screen"
+>
+
+    <div class="login-card">
+
+        <div class="login-logo">
+            SG
+        </div>
+
+        <h1>
+            SILO Guard
+        </h1>
+
+        <p class="login-description">
+            Smart Gas Monitoring & Ventilation
+        </p>
+
+
+        <form id="loginForm">
+
+            <div class="input-group">
+
+                <label>
+                    Email
+                </label>
+
+                <input
+                    id="email"
+                    type="email"
+                    placeholder="admin@example.com"
+                    required
+                >
+
+            </div>
+
+
+            <div class="input-group">
+
+                <label>
+                    Password
+                </label>
+
+                <input
+                    id="password"
+                    type="password"
+                    placeholder="Enter password"
+                    required
+                >
+
+            </div>
+
+
+            <button
+                class="primary-btn login-btn"
+                type="submit"
+            >
+
+                Sign In
+
+            </button>
+
+
+            <div
+                id="loginError"
+                class="error-message"
+            ></div>
+
+        </form>
+
+    </div>
+
+</div>
+
+
+
+<!-- ==================================================
+     APPLICATION
+================================================== -->
+
+<div
+    id="app"
+    class="app hidden"
+>
+
+
+<!-- ==================================================
+     SIDEBAR
+================================================== -->
+
+<aside class="sidebar">
+
+
+    <div class="brand">
+
+        <div class="brand-logo">
+            SG
+        </div>
+
+        <div>
+
+            <strong>
+                SILO Guard
+            </strong>
+
+            <span>
+                Monitoring System
+            </span>
+
+        </div>
+
+    </div>
+
+
+    <nav class="navigation">
+
+
+        <button
+            class="nav-item active"
+            data-section="dashboard"
+        >
+
+            <span>⌂</span>
+
+            Dashboard
+
+        </button>
+
+
+        <button
+            class="nav-item"
+            data-section="zones"
+        >
+
+            <span>◉</span>
+
+            3-Zone Monitor
+
+        </button>
+
+
+        <button
+            class="nav-item"
+            data-section="sensors"
+        >
+
+            <span>◈</span>
+
+            Gas Sensors
+
+        </button>
+
+
+        <button
+            class="nav-item"
+            data-section="analytics"
+        >
+
+            <span>⌁</span>
+
+            Analytics
+
+        </button>
+
+
+        <button
+            class="nav-item"
+            data-section="control"
+        >
+
+            <span>⚙</span>
+
+            Controls
+
+        </button>
+
+
+        <button
+            class="nav-item"
+            data-section="history"
+        >
+
+            <span>◷</span>
+
+            History
+
+        </button>
+
+
+        <button
+            class="nav-item"
+            data-section="settings"
+        >
+
+            <span>⚙</span>
+
+            Settings
+
+        </button>
+
+
+    </nav>
+
+
+    <div class="sidebar-footer">
+
+
+        <div class="device-connection">
+
+            <span
+                id="connectionDot"
+                class="connection-dot offline"
+            ></span>
+
+            <div>
+
+                <strong id="connectionText">
+                    Device Offline
+                </strong>
+
+                <small id="lastSeen">
+                    Waiting for ESP32...
+                </small>
+
+            </div>
+
+        </div>
+
+
+        <button
+            id="logoutBtn"
+            class="logout-button"
+        >
+
+            Logout
+
+        </button>
+
+    </div>
+
+
+</aside>
+
+
+
+<!-- ==================================================
+     MAIN CONTENT
+================================================== -->
+
+<main class="main">
+
+
+<!-- ==================================================
+     TOP BAR
+================================================== -->
+
+<header class="topbar">
+
+
+    <div>
+
+        <h2 id="pageTitle">
+            System Dashboard
+        </h2>
+
+        <p>
+            Real-time silo monitoring
+        </p>
+
+    </div>
+
+
+    <div class="topbar-right">
+
+
+        <div
+            id="systemBadge"
+            class="system-badge safe"
+        >
+
+            SYSTEM SECURE
+
+        </div>
+
+
+        <div
+            id="clock"
+            class="clock"
+        >
+            --:--:--
+        </div>
+
+    </div>
+
+
+</header>
+
+
+
+<!-- ==================================================
+     GLOBAL ALERT
+================================================== -->
+
+<div
+    id="dangerAlert"
+    class="danger-alert hidden"
+>
+
+    <div class="danger-symbol">
+        !
+    </div>
+
+    <div>
+
+        <strong>
+            GAS DETECTED
+        </strong>
+
+        <p id="dangerMessage">
+            Dangerous gas concentration detected.
+        </p>
+
+    </div>
+
+</div>
+
+
+
+<!-- ==================================================
+     DASHBOARD
+================================================== -->
+
+<section
+    id="dashboard"
+    class="page-section active-section"
+>
+
+
+<!-- STAT CARDS -->
+
+<div class="stats-grid">
+
+
+    <div class="stat-card">
+
+        <div class="stat-title">
+            Maximum Gas
+
+            <span class="stat-icon">
+                G
+            </span>
+
+        </div>
+
+        <div
+            id="maxGas"
+            class="stat-number"
+        >
+            0
+        </div>
+
+        <div class="progress">
+            <div
+                id="gasProgress"
+                class="progress-fill"
+            ></div>
+        </div>
+
+        <small>
+            Threshold:
+            <b id="thresholdText">
+                2000
+            </b>
+        </small>
+
+    </div>
+
+
+    <div class="stat-card">
+
+        <div class="stat-title">
+            Average Gas
+
+            <span class="stat-icon">
+                A
+            </span>
+
+        </div>
+
+        <div
+            id="averageGas"
+            class="stat-number"
+        >
+            0
+        </div>
+
+        <small>
+            Across 9 sensors
+        </small>
+
+    </div>
+
+
+    <div class="stat-card">
+
+        <div class="stat-title">
+            Battery
+
+            <span class="stat-icon">
+                B
+            </span>
+
+        </div>
+
+        <div
+            id="batteryVoltage"
+            class="stat-number"
+        >
+            0.0V
+        </div>
+
+        <div class="progress">
+
+            <div
+                id="batteryProgress"
+                class="progress-fill"
+            ></div>
+
+        </div>
+
+        <small id="batteryPercentage">
+            0%
+        </small>
+
+    </div>
+
+
+    <div class="stat-card">
+
+        <div class="stat-title">
+            Ventilation
+
+            <span class="stat-icon">
+                F
+            </span>
+
+        </div>
+
+        <div
+            id="fanStatus"
+            class="stat-number status-number"
+        >
+            STANDBY
+        </div>
+
+        <small>
+            Relay state
+        </small>
+
+    </div>
+
+
+</div>
+
+
+
+<!-- ENVIRONMENT -->
+
+<div class="section-title">
+
+    <div>
+
+        <h3>
+            Environment
+        </h3>
+
+        <p>
+            Live DHT22 measurements
+        </p>
+
+    </div>
+
+</div>
+
+
+<div class="environment-grid">
+
+
+    <div class="environment-card">
+
+        <div class="environment-heading">
+
+            <span>
+                Internal
+            </span>
+
+            <span class="environment-badge">
+                DHT22
+            </span>
+
+        </div>
+
+
+        <div class="environment-values">
+
+            <div>
+
+                <small>
+                    Temperature
+                </small>
+
+                <strong id="internalTemp">
+                    0.0°C
+                </strong>
+
+            </div>
+
+
+            <div>
+
+                <small>
+                    Humidity
+                </small>
+
+                <strong id="internalHumidity">
+                    0%
+                </strong>
+
+            </div>
+
+        </div>
+
+    </div>
+
+
+
+    <div class="environment-card">
+
+        <div class="environment-heading">
+
+            <span>
+                External
+            </span>
+
+            <span class="environment-badge">
+                DHT22
+            </span>
+
+        </div>
+
+
+        <div class="environment-values">
+
+            <div>
+
+                <small>
+                    Temperature
+                </small>
+
+                <strong id="externalTemp">
+                    0.0°C
+                </strong>
+
+            </div>
+
+
+            <div>
+
+                <small>
+                    Humidity
+                </small>
+
+                <strong id="externalHumidity">
+                    0%
+                </strong>
+
+            </div>
+
+        </div>
+
+    </div>
+
+</div>
+
+
+
+<!-- ZONES -->
+
+<div class="section-title">
+
+    <div>
+
+        <h3>
+            Zone Status
+        </h3>
+
+        <p>
+            Three-zone gas monitoring
+        </p>
+
+    </div>
+
+    <button
+        class="secondary-button"
+        data-section="zones"
+    >
+        View Zones
+    </button>
+
+</div>
+
+
+<div
+    id="zonePreview"
+    class="zone-grid"
+></div>
+
+
+
+<!-- SENSOR PREVIEW -->
+
+<div class="section-title">
+
+    <div>
+
+        <h3>
+            Gas Sensors
+        </h3>
+
+        <p>
+            9-channel MQ-135 overview
+        </p>
+
+    </div>
+
+    <button
+        class="secondary-button"
+        data-section="sensors"
+    >
+        All Sensors
+    </button>
+
+</div>
+
+
+<div
+    id="sensorPreview"
+    class="sensor-grid"
+></div>
+
+
+
+<!-- LIVE CHART -->
+
+<div class="section-title">
+
+    <div>
+
+        <h3>
+            Live Gas Monitoring
+        </h3>
+
+        <p>
+            Maximum and average gas levels
+        </p>
+
+    </div>
+
+</div>
+
+
+<div class="chart-card">
+
+    <canvas
+        id="liveGasChart"
+    ></canvas>
+
+</div>
+
+
+<!-- QUICK CONTROLS -->
+
+<div class="section-title">
+
+    <div>
+
+        <h3>
+            Quick Controls
+        </h3>
+
+        <p>
+            Remote control
+        </p>
+
+    </div>
+
+</div>
+
+
+<div class="quick-controls">
+
+
+    <button
+        id="quickFan"
+        class="quick-control"
+    >
+
+        <span>
+            Fan
+        </span>
+
+        <strong>
+            OFF
+        </strong>
+
+    </button>
+
+
+    <button
+        id="quickBuzzer"
+        class="quick-control"
+    >
+
+        <span>
+            Buzzer
+        </span>
+
+        <strong>
+            OFF
+        </strong>
+
+    </button>
+
+
+    <button
+        id="quickEmergency"
+        class="quick-control emergency"
+    >
+
+        <span>
+            Emergency
+        </span>
+
+        <strong>
+            ACTIVATE
+        </strong>
+
+    </button>
+
+
+</div>
+
+
+</section>
+
+
+
+<!-- ==================================================
+     ZONES
+================================================== -->
+
+<section
+    id="zones"
+    class="page-section"
+>
+
+    <div class="section-title">
+
+        <div>
+
+            <h3>
+                3-Zone Monitoring
+            </h3>
+
+            <p>
+                Three sensors assigned to each silo zone
+            </p>
+
+        </div>
+
+    </div>
+
+
+    <div
+        id="zoneCards"
+        class="zone-grid large"
+    ></div>
+
+
+    <div class="chart-card">
+
+        <h3>
+            Zone Comparison
+        </h3>
+
+        <canvas
+            id="zoneChart"
+        ></canvas>
+
+    </div>
+
+</section>
+
+
+
+<!-- ==================================================
+     SENSORS
+================================================== -->
+
+<section
+    id="sensors"
+    class="page-section"
+>
+
+    <div class="section-title">
+
+        <div>
+
+            <h3>
+                Gas Sensors
+            </h3>
+
+            <p>
+                Individual MQ-135 readings
+            </p>
+
+        </div>
+
+    </div>
+
+
+    <div
+        id="allSensors"
+        class="sensor-grid large"
+    ></div>
+
+
+</section>
+
+
+
+<!-- ==================================================
+     ANALYTICS
+================================================== -->
+
+<section
+    id="analytics"
+    class="page-section"
+
+>
+
+    <div class="section-title">
+
+        <div>
+
+            <h3>
+                Analytics
+            </h3>
+
+            <p>
+                Environmental and power trends
+            </p>
+
+        </div>
+
+    </div>
+
+
+    <div class="analytics-grid">
+
+
+        <div class="chart-card">
+
+            <h3>
+                Gas Trend
+            </h3>
+
+            <canvas
+                id="gasHistoryChart"
+            ></canvas>
+
+        </div>
+
+
+        <div class="chart-card">
+
+            <h3>
+                Temperature
+            </h3>
+
+            <canvas
+                id="temperatureChart"
+            ></canvas>
+
+        </div>
+
+
+        <div class="chart-card">
+
+            <h3>
+                Humidity
+            </h3>
+
+            <canvas
+                id="humidityChart"
+            ></canvas>
+
+        </div>
+
+
+        <div class="chart-card">
+
+            <h3>
+                Battery
+            </h3>
+
+            <canvas
+                id="batteryChart"
+            ></canvas>
+
+        </div>
+
+
+    </div>
+
+</section>
+
+
+
+<!-- ==================================================
+     CONTROL
+================================================== -->
+
+<section
+    id="control"
+    class="page-section"
+>
+
+    <div class="section-title">
+
+        <div>
+
+            <h3>
+                System Controls
+            </h3>
+
+            <p>
+                Remote ventilation and alarm control
+            </p>
+
+        </div>
+
+    </div>
+
+
+    <div class="control-grid">
+
+
+        <div class="control-card">
+
+            <div class="control-header">
+
+                <div>
+
+                    <h3>
+                        Ventilation Fan
+                    </h3>
+
+                    <p>
+                        Relay-controlled ventilation
+                    </p>
+
+                </div>
+
+                <span
+                    id="fanIndicator"
+                    class="indicator"
+                ></span>
+
+            </div>
+
+
+            <button
+                id="fanToggle"
+                class="large-control-button"
+            >
+                FAN OFF
+            </button>
+
+            <small>
+                Local gas protection has priority.
+            </small>
+
+        </div>
+
+
+
+        <div class="control-card">
+
+            <div class="control-header">
+
+                <div>
+
+                    <h3>
+                        Alarm Buzzer
+                    </h3>
+
+                    <p>
+                        Audible warning
+                    </p>
+
+                </div>
+
+                <span
+                    id="buzzerIndicator"
+                    class="indicator"
+                ></span>
+
+            </div>
+
+
+            <button
+                id="buzzerToggle"
+                class="large-control-button"
+            >
+                BUZZER OFF
+            </button>
+
+        </div>
+
+
+
+        <div class="control-card">
+
+            <div class="control-header">
+
+                <div>
+
+                    <h3>
+                        Control Mode
+                    </h3>
+
+                    <p>
+                        Automatic or remote
+                    </p>
+
+                </div>
+
+            </div>
+
+
+            <div class="mode-buttons">
+
+                <button
+                    id="autoMode"
+                    class="mode-button active"
+                >
+                    AUTO
+                </button>
+
+
+                <button
+                    id="remoteMode"
+                    class="mode-button"
+                >
+                    REMOTE
+                </button>
+
+            </div>
+
+        </div>
+
+
+
+        <div class="control-card emergency-control">
+
+            <div>
+
+                <h3>
+                    Emergency Ventilation
+                </h3>
+
+                <p>
+                    Activate fan and alarm immediately.
+                </p>
+
+            </div>
+
+
+            <button
+                id="emergencyBtn"
+                class="emergency-button"
+            >
+                ACTIVATE EMERGENCY
+            </button>
+
+
+            <button
+                id="resetEmergency"
+                class="reset-button"
+            >
+                RESET EMERGENCY
+            </button>
+
+        </div>
+
+
+    </div>
+
+</section>
+
+
+
+<!-- ==================================================
+     HISTORY
+================================================== -->
+
+<section
+    id="history"
+    class="page-section"
+>
+
+    <div class="section-title">
+
+        <div>
+
+            <h3>
+                System History
+            </h3>
+
+            <p>
+                Recorded monitoring events
+            </p>
+
+        </div>
+
+    </div>
+
+
+    <div class="history-card">
+
+        <div class="history-toolbar">
+
+            <span>
+                Latest 100 records
+            </span>
+
+            <button
+                id="clearHistory"
+                class="danger-outline"
+            >
+                Clear History
+            </button>
+
+        </div>
+
+
+        <div class="table-wrapper">
+
+            <table>
+
+                <thead>
+
+                    <tr>
+
+                        <th>
+                            Time
+                        </th>
+
+                        <th>
+                            Zone
+                        </th>
+
+                        <th>
+                            Max Gas
+                        </th>
+
+                        <th>
+                            Avg Gas
+                        </th>
+
+                        <th>
+                            Temperature
+                        </th>
+
+                        <th>
+                            Battery
+                        </th>
+
+                        <th>
+                            Status
+                        </th>
+
+                    </tr>
+
+                </thead>
+
+
+                <tbody id="historyTable">
+
+                </tbody>
+
+            </table>
+
+        </div>
+
+    </div>
+
+</section>
+
+
+
+<!-- ==================================================
+     SETTINGS
+================================================== -->
+
+<section
+    id="settings"
+    class="page-section"
+>
+
+    <div class="section-title">
+
+        <div>
+
+            <h3>
+                System Settings
+            </h3>
+
+            <p>
+                Configure gas monitoring parameters
+            </p>
+
+        </div>
+
+    </div>
+
+
+    <div class="settings-grid">
+
+
+        <div class="settings-card">
+
+            <h3>
+                Gas Threshold
+            </h3>
+
+            <p>
+                Maximum safe MQ-135 ADC value.
+            </p>
+
+
+            <label>
+                Danger Threshold
+            </label>
+
+
+            <div class="setting-row">
+
+                <input
+                    id="gasThresholdInput"
+                    type="number"
+                    min="0"
+                    max="4095"
+                >
+
+                <button
+                    id="saveThreshold"
+                    class="primary-btn"
+                >
+                    Save
+                </button>
+
+            </div>
+
+
+            <small>
+                ESP32 ADC range: 0–4095
+            </small>
+
+        </div>
+
+
+
+        <div class="settings-card">
+
+            <h3>
+                Warning Threshold
+            </h3>
+
+            <p>
+                Early warning level.
+            </p>
+
+
+            <label>
+                Warning Value
+            </label>
+
+
+            <div class="setting-row">
+
+                <input
+                    id="warningThresholdInput"
+                    type="number"
+                    min="0"
+                    max="4095"
+                >
+
+                <button
+                    id="saveWarning"
+                    class="primary-btn"
+                >
+                    Save
+                </button>
+
+            </div>
+
+        </div>
+
+
+
+        <div class="settings-card">
+
+            <h3>
+                Device Information
+            </h3>
+
+
+            <div class="device-info">
+
+                <div>
+                    <span>
+                        Device
+                    </span>
+
+                    <strong>
+                        ESP32 DOIT V1
+                    </strong>
+                </div>
+
+
+                <div>
+                    <span>
+                        Sensors
+                    </span>
+
+                    <strong>
+                        9 × MQ-135
+                    </strong>
+                </div>
+
+
+                <div>
+                    <span>
+                        Temperature
+                    </span>
+
+                    <strong>
+                        2 × DHT22
+                    </strong>
+                </div>
+
+
+                <div>
+                    <span>
+                        Database
+                    </span>
+
+                    <strong>
+                        Firebase RTDB
+                    </strong>
+                </div>
+
+
+                <div>
+                    <span>
+                        IP Address
+                    </span>
+
+                    <strong id="ipAddress">
+                        --
+                    </strong>
+                </div>
+
+
+                <div>
+                    <span>
+                        Wi-Fi RSSI
+                    </span>
+
+                    <strong id="wifiRSSI">
+                        --
+                    </strong>
+                </div>
+
+            </div>
+
+        </div>
+
+
+    </div>
+
+</section>
+
+
+</main>
+
+</div>
+
+
+
+<!-- ==================================================
+     TOAST
+================================================== -->
+
+<div
+    id="toast"
+    class="toast"
+>
+    Updated
+</div>
+
+
+
+<script
+    type="module"
+    src="app.js"
+></script>
+
+
+</body>
+
+</html>
