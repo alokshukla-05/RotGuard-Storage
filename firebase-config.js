@@ -29,27 +29,13 @@ import {
 // ======================================================
 
 const firebaseConfig = {
-
-    apiKey: "YOUR_API_KEY",
-
-    authDomain:
-        "YOUR_PROJECT.firebaseapp.com",
-
-    databaseURL:
-        "https://YOUR_PROJECT-default-rtdb.firebaseio.com/",
-
-    projectId:
-        "YOUR_PROJECT_ID",
-
-    storageBucket:
-        "YOUR_PROJECT.firebasestorage.app",
-
-    messagingSenderId:
-        "YOUR_MESSAGING_SENDER_ID",
-
-    appId:
-        "YOUR_APP_ID"
-
+  apiKey: "AIzaSyC0dYCbPoH5mH1QeLI31xrfqnUSbT8Bao0",
+  authDomain: "fixeasy-568cd.firebaseapp.com",
+  projectId: "fixeasy-568cd",
+  storageBucket: "fixeasy-568cd.firebasestorage.app",
+  messagingSenderId: "839456909521",
+  appId: "1:839456909521:web:8555cb99e40cb5e1753df0",
+  measurementId: "G-RQD3RPMZKS"
 };
 
 
