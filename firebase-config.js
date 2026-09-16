@@ -29,13 +29,12 @@ import {
 // ======================================================
 
 const firebaseConfig = {
-  apiKey: "AIzaSyC0dYCbPoH5mH1QeLI31xrfqnUSbT8Bao0",
-  authDomain: "fixeasy-568cd.firebaseapp.com",
-  projectId: "fixeasy-568cd",
-  storageBucket: "fixeasy-568cd.firebasestorage.app",
-  messagingSenderId: "839456909521",
-  appId: "1:839456909521:web:8555cb99e40cb5e1753df0",
-  measurementId: "G-RQD3RPMZKS"
+  apiKey: "AIzaSyDGpagCpskeOxzVO4C5qgdVUTeWO8rUZUU",
+  authDomain: "electrician-830b2.firebaseapp.com",
+  projectId: "electrician-830b2",
+  storageBucket: "electrician-830b2.firebasestorage.app",
+  messagingSenderId: "1053791458330",
+  appId: "1:1053791458330:web:fdbf5befa79aef2376eda3"
 };
 
 
