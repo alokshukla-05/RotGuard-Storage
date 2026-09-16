@@ -1,670 +1,2880 @@
 import {
-  auth, db, storage,
-  signInWithEmailAndPassword, onAuthStateChanged, signOut,
-  ref, onValue, update, remove,
-  storageRef, uploadBytesResumable, getDownloadURL
+
+    auth,
+    db,
+    storage,
+
+    signInWithEmailAndPassword,
+    onAuthStateChanged,
+    signOut,
+
+    ref,
+    onValue,
+    set,
+    update,
+    push,
+    remove,
+
+    storageRef,
+    uploadBytesResumable,
+    getDownloadURL
+
 } from "./firebase-config.js";
 
-const state={
-  status:{}, sensors:{}, zones:{}, control:{}, settings:{},
-  diagnostics:{}, history:{}, firmware:{}, firmwareDevice:{},
-  firmwareHistory:{}
-};
 
-const SENSOR_COUNT=9;
-const ZONES={1:[1,2,3],2:[4,5,6],3:[7,8,9]};
-const OFFLINE_MS=15000;
-const $=id=>document.getElementById(id);
+// ======================================================
+// CONFIG
+// ======================================================
 
-let liveGasChart,zoneChart,gasHistoryChart,temperatureChart,humidityChart,batteryChart;
-let firebaseStarted=false;
+const DEVICE_ID = "silo-guard-01";
 
-function safeNum(v,fallback=0){
-  const n=Number(v);
-  return Number.isFinite(n)?n:fallback;
-}
-function showToast(message,type=""){
-  const el=$("toast");
-  if(!el)return;
-  el.textContent=message;
-  el.className="toast show "+type;
-  clearTimeout(showToast.timer);
-  showToast.timer=setTimeout(()=>el.className="toast",3000);
-}
-function formatTime(ts){
-  const n=Number(ts);
-  if(!Number.isFinite(n)||n<=0)return"--";
-  const d=new Date(n);
-  if(Number.isNaN(d.getTime()))return"--";
-  return d.toLocaleString("en-IN",{day:"2-digit",month:"short",
-    hour:"2-digit",minute:"2-digit",second:"2-digit"});
-}
-function formatShortTime(ts){
-  const n=Number(ts);
-  if(!Number.isFinite(n)||n<=0)return"--";
-  return new Date(n).toLocaleTimeString("en-IN",
-    {hour:"2-digit",minute:"2-digit",second:"2-digit"});
-}
+const ADMIN_EMAILS = [
 
-$("loginForm").addEventListener("submit",async e=>{
-  e.preventDefault();
-  $("loginError").textContent="";
-  try{
-    await signInWithEmailAndPassword(auth,$("email").value.trim(),$("password").value);
-    showToast("Login successful");
-  }catch(err){
-    console.error(err);
-    $("loginError").textContent="Login failed. Check Firebase Authentication and credentials.";
-  }
-});
+    "major@gmail.com"
 
-$("logoutBtn").addEventListener("click",()=>signOut(auth));
+];
 
-document.querySelectorAll("[data-section]").forEach(btn=>{
-  btn.addEventListener("click",()=>navigate(btn.dataset.section));
-});
+const OFFLINE_TIMEOUT = 15000;
 
-function navigate(section){
-  document.querySelectorAll(".page-section").forEach(p=>p.classList.remove("active-section"));
-  const target=$(section);
-  if(target)target.classList.add("active-section");
 
-  document.querySelectorAll(".nav-item").forEach(n=>n.classList.remove("active"));
-  const nav=document.querySelector(`.nav-item[data-section="${section}"]`);
-  if(nav)nav.classList.add("active");
+// ======================================================
+// GLOBAL STATE
+// ======================================================
 
-  $("pageTitle").textContent=({
-    dashboard:"System Dashboard",zones:"3-Zone Monitor",sensors:"Gas Sensors",
-    analytics:"Analytics",control:"System Controls",history:"System History",
-    settings:"System Settings",diagnostics:"Diagnostics",firmware:"Firmware Management"
-  })[section]||"SILO Guard";
+const state = {
 
-  window.scrollTo({top:0,behavior:"smooth"});
-}
+    status: {},
 
-onAuthStateChanged(auth,user=>{
-  if(user){
-    $("loginScreen").classList.add("hidden");
-    $("app").classList.remove("hidden");
-    if(!firebaseStarted)startFirebase();
-  }else{
-    $("loginScreen").classList.remove("hidden");
-    $("app").classList.add("hidden");
-  }
-});
+    sensors: {},
 
-function startFirebase(){
-  firebaseStarted=true;
+    zones: {},
 
-  onValue(ref(db,"siloSystem/status"),snap=>{
-    state.status=snap.val()||{};
-    renderStatus();
-    renderCuring();
-    updateOnlineStatus();
-    updateLiveChart();
-  },err=>showToast("Status read failed: "+err.message,"error"));
+    control: {},
 
-  onValue(ref(db,"siloSystem/sensors"),snap=>{
-    state.sensors=snap.val()||{};
-    renderSensors();renderZones();updateZoneChart();
-  },err=>console.error("Sensors:",err));
+    settings: {},
 
-  onValue(ref(db,"siloSystem/zones"),snap=>{
-    state.zones=snap.val()||{};
-    renderZones();updateZoneChart();
-  },err=>console.error("Zones:",err));
+    diagnostics: {},
 
-  onValue(ref(db,"siloSystem/control"),snap=>{
-    state.control=snap.val()||{};
-    renderControls();
-  },err=>console.error("Control:",err));
+    history: {},
 
-  onValue(ref(db,"siloSystem/settings"),snap=>{
-    state.settings=snap.val()||{};
-    renderSettings();renderSensors();renderZones();
-  },err=>console.error("Settings:",err));
+    firmware: {
 
-  onValue(ref(db,"siloSystem/diagnostics"),snap=>{
-    state.diagnostics=snap.val()||{};
-    renderDiagnostics();
-  },err=>console.error("Diagnostics:",err));
+        latest: {},
 
-  onValue(ref(db,"siloSystem/history"),snap=>{
-    state.history=snap.val()||{};
-    renderHistory();updateHistoryCharts();
-  },err=>console.error("History:",err));
+        command: {},
 
-  onValue(ref(db,"siloSystem/firmware"),snap=>{
-    const x=snap.val()||{};
-    state.firmware=x;
-    state.firmwareDevice=x.device||{};
-    state.firmwareHistory=x.history||{};
-    renderFirmware();
-  },err=>console.error("Firmware:",err));
-}
+        device: {},
 
-function renderStatus(){
-  const s=state.status;
-  const threshold=safeNum(state.settings.gasThreshold,2000);
-  const warning=safeNum(state.settings.warningThreshold,1500);
-  const maxGas=safeNum(s.maxGasReading,0);
+        history: {}
 
-  $("maxGas").textContent=Math.round(maxGas);
-  $("averageGas").textContent=Math.round(safeNum(s.averageGasReading,0));
-  $("thresholdText").textContent=threshold;
-  $("gasProgress").style.width=Math.min(maxGas/4095*100,100)+"%";
-
-  const battery=safeNum(s.batteryPercentage,0);
-  $("batteryVoltage").textContent=safeNum(s.batteryVoltage,0).toFixed(2)+"V";
-  $("batteryPercentage").textContent=Math.round(battery)+"%";
-  $("batteryProgress").style.width=Math.max(0,Math.min(battery,100))+"%";
-
-  $("internalTemp").textContent=safeNum(s.temperatureInternal,0).toFixed(1)+"°C";
-  $("internalHumidity").textContent=Math.round(safeNum(s.humidityInternal,0))+"%";
-  $("externalTemp").textContent=safeNum(s.temperatureExternal,0).toFixed(1)+"°C";
-  $("externalHumidity").textContent=Math.round(safeNum(s.humidityExternal,0))+"%";
-
-  $("fanStatus").textContent=s.fan?"ACTIVE":"STANDBY";
-  $("ipAddress").textContent=s.ipAddress||"--";
-  $("wifiRSSI").textContent=s.wifiRSSI!==undefined?s.wifiRSSI+" dBm":"--";
-  $("activeReason").textContent=s.activeFanReason||"STANDBY";
-  $("activeZone").textContent=safeNum(s.activeRotZone,-1)<0?"None":"Zone "+s.activeRotZone;
-  $("rotAngle").textContent=safeNum(s.preciseRotAngle,0).toFixed(1)+"°";
-  $("vectorMagnitude").textContent=safeNum(s.vectorMagnitude,0).toFixed(0);
-  $("fillStatus").textContent=s.fillStatus||"0% (EMPTY)";
-  $("lastUpdate").textContent=formatTime(s.lastUpdate);
-  $("lastHeartbeatValue").textContent=formatTime(s.lastHeartbeat);
-
-  $("firmwareVersion").textContent=s.firmwareVersion||"--";
-  $("hardwareVersion").textContent=s.hardwareVersion||"--";
-
-  const gas=Boolean(s.gasDetected);
-  $("dangerAlert").classList.toggle("hidden",!gas&&maxGas<warning);
-  $("systemBadge").className="system-badge "+(gas?"danger":maxGas>=warning?"warning":"safe");
-  $("systemBadge").textContent=gas?"GAS DETECTED":maxGas>=warning?"WARNING":"SYSTEM SECURE";
-
-  $("dangerMessage").textContent=gas
-    ?`Maximum ADC ${Math.round(maxGas)}. Danger threshold ${threshold}. Local safety ventilation is active.`
-    :maxGas>=warning
-      ?`Gas level ${Math.round(maxGas)} is above the warning threshold ${warning}.`
-      :"No gas danger condition detected.";
-
-  $("gasState").textContent=gas?"DANGER":maxGas>=warning?"WARNING":"NORMAL";
-  $("gasState").className="pill "+(gas?"danger":maxGas>=warning?"warning":"safe");
-}
-
-function renderCuring(){
-  const s=state.status;
-  const active=Boolean(s.curingActive);
-  const days=safeNum(s.curingDay,0);
-  const progress=Math.max(0,Math.min(100,safeNum(s.curingProgress,0)));
-
-  $("curingStatus").textContent=s.curingStatus||"HARVEST DATE NOT SET";
-  $("curingDay").textContent=active?`${days} / 14 days`:"14 / 14 days";
-  $("curingProgress").style.width=progress+"%";
-  $("harvestDate").textContent=s.harvestTimestamp?formatTime(s.harvestTimestamp):"Not set";
-}
-
-function updateOnlineStatus(){
-  const hb=safeNum(state.status.lastHeartbeat,0);
-  const online=hb>0&&(Date.now()-hb)<OFFLINE_MS;
-
-  $("connectionDot").classList.toggle("online",online);
-  $("connectionDot").classList.toggle("offline",!online);
-  $("connectionText").textContent=online?"Device Online":"Device Offline";
-  $("lastSeen").textContent=online?"Heartbeat "+formatShortTime(hb):
-    hb?"Last seen "+formatTime(hb):"Waiting for ESP32...";
-  $("onlineCard").textContent=online?"ONLINE":"OFFLINE";
-  $("onlineCard").className="mini-state "+(online?"online":"offline");
-}
-setInterval(updateOnlineStatus,3000);
-
-function sensorState(v){
-  const t=safeNum(state.settings.gasThreshold,2000);
-  const w=safeNum(state.settings.warningThreshold,1500);
-  return v>=t?["danger","DANGER"]:v>=w?["warning","WARNING"]:["","NORMAL"];
-}
-
-function createSensorCard(i,v){
-  const [cls,label]=sensorState(v);
-  const diag=state.diagnostics["mq"+i]||{};
-  const healthy=diag.healthy!==false;
-
-  return `<div class="sensor-card ${cls}">
-    <div class="sensor-top"><span class="sensor-name">MQ-135 Sensor ${i}</span>
-    <span class="sensor-status ${cls}">${label}</span></div>
-    <div class="sensor-value">${Math.round(v)}</div>
-    <div class="sensor-meta"><span>ADC 0–4095</span>
-    <span class="${healthy?"ok":"bad"}">${healthy?"● HEALTHY":"● FAULT"}</span></div>
-  </div>`;
-}
-
-function renderSensors(){
-  let html="";
-  for(let i=1;i<=SENSOR_COUNT;i++)
-    html+=createSensorCard(i,safeNum(state.sensors["gas"+i],0));
-  $("allSensors").innerHTML=html;
-  $("sensorPreview").innerHTML=html;
-}
-
-function calculateZone(zoneNo){
-  const nums=ZONES[zoneNo];
-  const vals=nums.map(n=>safeNum(state.sensors["gas"+n],0));
-  const dbz=state.zones["zone"+zoneNo]||{};
-  return {
-    values:vals,
-    max:safeNum(dbz.peak,Math.max(...vals)),
-    average:safeNum(dbz.average,vals.reduce((a,b)=>a+b,0)/vals.length),
-    danger:Boolean(dbz.danger)||vals.some(v=>v>=safeNum(state.settings.gasThreshold,2000))
-  };
-}
-
-function createZoneCard(z){
-  const q=calculateZone(z);
-  const warning=safeNum(state.settings.warningThreshold,1500);
-  const cls=q.danger?"danger":q.max>=warning?"warning":"";
-
-  return `<div class="zone-card ${cls}">
-    <div class="zone-header"><span class="zone-name">Zone ${z}</span>
-    <span class="zone-status ${cls}">${q.danger?"DANGER":q.max>=warning?"WARNING":"NORMAL"}</span></div>
-    <div class="zone-value">${Math.round(q.max)}</div>
-    <small>Maximum gas ADC</small>
-    <div class="zone-sensors">${ZONES[z].map(n=>
-      `<div class="zone-sensor"><small>MQ-${n}</small>
-      <strong>${Math.round(safeNum(state.sensors["gas"+n],0))}</strong></div>`).join("")}</div>
-    <div class="zone-foot">Average ${Math.round(q.average)}</div>
-  </div>`;
-}
-
-function renderZones(){
-  let html="";
-  [1,2,3].forEach(z=>html+=createZoneCard(z));
-  $("zoneCards").innerHTML=html;
-  $("zonePreview").innerHTML=html;
-}
-
-function renderControls(){
-  const c=state.control,s=state.status;
-  const fan=Boolean(c.fan),buz=Boolean(c.buzzer),remote=c.mode==="REMOTE";
-
-  $("fanToggle").textContent=fan?"FAN ON":"FAN OFF";
-  $("buzzerToggle").textContent=buz?"BUZZER ON":"BUZZER OFF";
-  $("fanIndicator").classList.toggle("on",Boolean(s.fan));
-  $("buzzerIndicator").classList.toggle("on",Boolean(s.buzzer));
-  $("autoMode").classList.toggle("active",!remote);
-  $("remoteMode").classList.toggle("active",remote);
-  $("quickFan").querySelector("strong").textContent=fan?"ON":"OFF";
-  $("quickBuzzer").querySelector("strong").textContent=buz?"ON":"OFF";
-  $("controlModeText").textContent=c.mode||"AUTO";
-  $("emergencyState").textContent=c.emergency?"ACTIVE":"CLEAR";
-  $("actualFanState").textContent=s.fan?"ON":"OFF";
-  $("activeFanReasonControl").textContent=s.activeFanReason||"STANDBY";
-}
-
-async function writeControl(patch,msg){
-  try{
-    await update(ref(db,"siloSystem/control"),{...patch,commandId:Date.now()});
-    showToast(msg);
-  }catch(e){
-    console.error(e);
-    showToast("Command failed: "+e.message,"error");
-  }
-}
-
-async function toggleFan(){
-  await writeControl({fan:!Boolean(state.control.fan),mode:"REMOTE"},"Fan command sent");
-}
-async function toggleBuzzer(){
-  await writeControl({buzzer:!Boolean(state.control.buzzer),mode:"REMOTE"},"Buzzer command sent");
-}
-async function enableAuto(){await writeControl({mode:"AUTO"},"AUTO mode enabled")}
-async function enableRemote(){await writeControl({mode:"REMOTE"},"REMOTE mode enabled")}
-
-async function emergency(){
-  if(confirm("Activate emergency ventilation and alarm?"))
-    await writeControl({emergency:true,fan:true,buzzer:true,mode:"REMOTE"},"EMERGENCY ACTIVATED");
-}
-async function resetEmergency(){
-  if(confirm("Reset emergency command?"))
-    await writeControl({emergency:false,fan:false,buzzer:false,mode:"AUTO"},"Emergency reset requested");
-}
-
-$("fanToggle").onclick=toggleFan;
-$("quickFan").onclick=toggleFan;
-$("buzzerToggle").onclick=toggleBuzzer;
-$("quickBuzzer").onclick=toggleBuzzer;
-$("autoMode").onclick=enableAuto;
-$("remoteMode").onclick=enableRemote;
-$("emergencyBtn").onclick=emergency;
-$("quickEmergency").onclick=emergency;
-$("resetEmergency").onclick=resetEmergency;
-
-function renderSettings(){
-  $("gasThresholdInput").value=safeNum(state.settings.gasThreshold,2000);
-  $("warningThresholdInput").value=safeNum(state.settings.warningThreshold,1500);
-}
-
-$("saveThreshold").onclick=async()=>{
-  const v=safeNum($("gasThresholdInput").value,-1);
-  if(v<0||v>4095)return showToast("Danger threshold must be 0–4095","error");
-  try{
-    await update(ref(db,"siloSystem/settings"),{gasThreshold:v});
-    showToast("Danger threshold saved");
-  }catch(e){showToast("Save failed: "+e.message,"error")}
-};
-
-$("saveWarning").onclick=async()=>{
-  const v=safeNum($("warningThresholdInput").value,-1);
-  if(v<0||v>4095)return showToast("Warning threshold must be 0–4095","error");
-  try{
-    await update(ref(db,"siloSystem/settings"),{warningThreshold:v});
-    showToast("Warning threshold saved");
-  }catch(e){showToast("Save failed: "+e.message,"error")}
-};
-
-function renderDiagnostics(){
-  const d=state.diagnostics;
-  $("diagFirebase").textContent=d.firebaseHealthy===false?"FAULT":"OK";
-  $("diagWiFi").textContent=d.wifiConnected===false?"FAULT":"OK";
-  $("diagDhtInt").textContent=d.dhtInternalHealthy===false?"FAULT":"OK";
-  $("diagDhtExt").textContent=d.dhtExternalHealthy===false?"FAULT":"OK";
-  $("diagFan").textContent=d.fanDiagnosticFault?"FAULT":"COMMAND OK";
-  $("diagHeartbeat").textContent=formatTime(state.status.lastHeartbeat);
-
-  let html="";
-  for(let i=1;i<=9;i++){
-    const x=d["mq"+i]||{};
-    html+=`<div class="diag-row"><span>MQ-135 ${i}</span>
-      <b class="${x.healthy===false?"bad":"ok"}">${x.healthy===false?"FAULT":"HEALTHY"}</b></div>`;
-  }
-  $("mqDiagnostics").innerHTML=html;
-}
-
-function historyEntries(){
-  return Object.entries(state.history)
-    .sort(([a],[b])=>Number(b)-Number(a)).slice(0,500);
-}
-
-function renderHistory(){
-  const rows=historyEntries();
-  const t=safeNum(state.settings.gasThreshold,2000);
-  const w=safeNum(state.settings.warningThreshold,1500);
-
-  $("historyCount").textContent=`${Object.keys(state.history).length} total records`;
-
-  $("historyTable").innerHTML=rows.map(([ts,x])=>{
-    const max=safeNum(x.maxGas,0);
-    const status=max>=t?"DANGER":max>=w?"WARNING":"NORMAL";
-    return `<tr><td>${formatTime(ts)}</td>
-      <td>${x.activeZone>0?"Zone "+x.activeZone:"None"}</td>
-      <td>${Math.round(max)}</td>
-      <td>${Math.round(safeNum(x.averageGas,0))}</td>
-      <td>${safeNum(x.temperature,0).toFixed(1)}°C</td>
-      <td>${safeNum(x.humidity,0).toFixed(1)}%</td>
-      <td>${safeNum(x.battery,0).toFixed(2)}V</td>
-      <td>${x.fan?"ON":"OFF"}</td>
-      <td class="${status==="DANGER"?"danger-text":status==="WARNING"?"warning-text":"safe-text"}">${status}</td></tr>`;
-  }).join("")||`<tr><td colspan="9">No history available</td></tr>`;
-}
-
-$("clearHistory").onclick=async()=>{
-  if(!confirm("Delete ALL history records? This cannot be undone."))return;
-  try{
-    await remove(ref(db,"siloSystem/history"));
-    showToast("History cleared");
-  }catch(e){showToast("Delete failed: "+e.message,"error")}
-};
-
-function makeChart(id,type,labels=[],datasets=[]){
-  const c=$(id);
-  if(!c||typeof Chart==="undefined")return null;
-  return new Chart(c,{
-    type,
-    data:{labels,datasets},
-    options:{
-      responsive:true,maintainAspectRatio:false,animation:false,
-      scales:{y:{beginAtZero:true}},
-      plugins:{legend:{labels:{color:"#aeb9c7"}}}
     }
-  });
+
+};
+
+
+// ======================================================
+// HELPERS
+// ======================================================
+
+function $(id) {
+
+    return document.getElementById(id);
+
 }
 
-function initCharts(){
-  liveGasChart=makeChart("liveGasChart","line",[],[
-    {label:"Maximum Gas",data:[],tension:.3,borderWidth:2,pointRadius:1},
-    {label:"Average Gas",data:[],tension:.3,borderWidth:2,pointRadius:1}
-  ]);
-  zoneChart=makeChart("zoneChart","bar",["Zone 1","Zone 2","Zone 3"],
-    [{label:"Peak Gas",data:[0,0,0],borderWidth:1}]);
-  gasHistoryChart=makeChart("gasHistoryChart","line",[],
-    [{label:"Max Gas",data:[],tension:.3,pointRadius:1}]);
-  temperatureChart=makeChart("temperatureChart","line",[],
-    [{label:"Temperature °C",data:[],tension:.3,pointRadius:1}]);
-  humidityChart=makeChart("humidityChart","line",[],
-    [{label:"Humidity %",data:[],tension:.3,pointRadius:1}]);
-  batteryChart=makeChart("batteryChart","line",[],
-    [{label:"Battery V",data:[],tension:.3,pointRadius:1}]);
+
+function number(value, fallback = 0) {
+
+    const n = Number(value);
+
+    return Number.isFinite(n)
+        ? n
+        : fallback;
+
 }
 
-function updateLiveChart(){
-  if(!liveGasChart)return;
-  const labels=liveGasChart.data.labels;
-  const a=liveGasChart.data.datasets[0].data;
-  const b=liveGasChart.data.datasets[1].data;
 
-  labels.push(formatShortTime(state.status.lastUpdate||Date.now()));
-  a.push(safeNum(state.status.maxGasReading,0));
-  b.push(safeNum(state.status.averageGasReading,0));
+function escapeHTML(value) {
 
-  while(labels.length>40){labels.shift();a.shift();b.shift();}
-  liveGasChart.update("none");
+    return String(value ?? "")
+
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
+
 }
 
-function updateZoneChart(){
-  if(!zoneChart)return;
-  zoneChart.data.datasets[0].data=[1,2,3].map(z=>calculateZone(z).max);
-  zoneChart.update("none");
+
+function showToast(message, type = "") {
+
+    const toast = $("toast");
+
+    if (!toast) return;
+
+    toast.textContent = message;
+
+    toast.className =
+        "toast show " + type;
+
+    clearTimeout(window.toastTimer);
+
+    window.toastTimer =
+        setTimeout(() => {
+
+            toast.className = "toast";
+
+        }, 3000);
+
 }
 
-function updateHistoryCharts(){
-  const rows=historyEntries().reverse();
-  const labels=rows.map(([t])=>formatShortTime(t));
-  updateChart(gasHistoryChart,labels,rows.map(([,x])=>safeNum(x.maxGas,0)));
-  updateChart(temperatureChart,labels,rows.map(([,x])=>safeNum(x.temperature,0)));
-  updateChart(humidityChart,labels,rows.map(([,x])=>safeNum(x.humidity,0)));
-  updateChart(batteryChart,labels,rows.map(([,x])=>safeNum(x.battery,0)));
+
+function formatTime(timestamp) {
+
+    const n = Number(timestamp);
+
+    if (!n || !Number.isFinite(n)) {
+
+        return "--";
+
+    }
+
+    const date = new Date(n);
+
+    if (Number.isNaN(date.getTime())) {
+
+        return "--";
+
+    }
+
+    return date.toLocaleString(
+        "en-IN",
+        {
+            day: "2-digit",
+            month: "short",
+            year: "numeric",
+            hour: "2-digit",
+            minute: "2-digit",
+            second: "2-digit"
+        }
+    );
+
 }
 
-function updateChart(ch,labels,data){
-  if(!ch)return;
-  ch.data.labels=labels;
-  ch.data.datasets[0].data=data;
-  ch.update("none");
+
+function shortTime(timestamp) {
+
+    const n = Number(timestamp);
+
+    if (!n || !Number.isFinite(n)) {
+
+        return "--";
+
+    }
+
+    return new Date(n).toLocaleTimeString(
+        "en-IN",
+        {
+            hour: "2-digit",
+            minute: "2-digit",
+            second: "2-digit"
+        }
+    );
+
 }
 
-// ==================== OTA WEB APP ====================
-function sha256Hex(buffer){
-  return crypto.subtle.digest("SHA-256",buffer).then(hash=>{
-    return [...new Uint8Array(hash)].map(b=>b.toString(16).padStart(2,"0")).join("");
-  });
+
+function isAdmin() {
+
+    const user = auth.currentUser;
+
+    if (!user) return false;
+
+    return ADMIN_EMAILS
+        .map(x => x.toLowerCase())
+        .includes(
+            (user.email || "").toLowerCase()
+        );
+
 }
 
-function renderFirmware(){
-  const f=state.firmware;
-  const d=state.firmwareDevice;
-  const latest=f.latest||{};
-  const command=f.command||{};
 
-  $("otaDeviceId").textContent=d.deviceId||"--";
-  $("otaCurrentVersion").textContent=d.firmwareVersion||state.status.firmwareVersion||"--";
-  $("otaCurrentBuild").textContent=d.firmwareBuild??state.status.firmwareBuild??"--";
-  $("otaCurrentHardware").textContent=d.hardwareVersion||state.status.hardwareVersion||"--";
-  $("otaState").textContent=d.state||"IDLE";
-  $("otaProgressText").textContent=(d.progress??0)+"%";
+// ======================================================
+// LOGIN
+// ======================================================
 
-  $("otaLatestVersion").textContent=latest.version||"--";
-  $("otaLatestBuild").textContent=latest.build??"--";
-  $("otaHash").textContent=latest.sha256||"--";
+const loginForm = $("loginForm");
 
-  const currentBuild=safeNum(d.firmwareBuild??state.status.firmwareBuild,0);
-  const latestBuild=safeNum(latest.build,0);
-  const gas=Boolean(state.status.gasDetected);
-  const emergency=Boolean(state.control.emergency);
+if (loginForm) {
 
-  const blocked=gas||emergency;
-  const newer=latestBuild>currentBuild;
+    loginForm.addEventListener(
+        "submit",
+        async event => {
 
-  $("otaBadge").textContent=blocked?"OTA BLOCKED":newer?"UPDATE AVAILABLE":"OTA READY";
-  $("otaBadge").className="system-badge "+(blocked?"danger":newer?"warning":"safe");
+            event.preventDefault();
 
-  $("deployLatest").disabled=!newer||blocked||!latest.url;
-  $("deployInfo").textContent=blocked
-    ?"Deployment is blocked while GAS DETECTED or EMERGENCY is active."
-    :newer
-      ?`Build ${latestBuild} is ready for ${d.deviceId||"the device"}.`
-      :"No newer compatible firmware is currently published.";
+            const email =
+                $("email").value.trim();
 
-  const commandId=command.commandId||"";
-  if(commandId){
-    $("deployInfo").textContent+=" Pending command: "+commandId;
-  }
+            const password =
+                $("password").value;
 
-  renderFirmwareHistory();
+            $("loginError").textContent = "";
+
+            try {
+
+                await signInWithEmailAndPassword(
+                    auth,
+                    email,
+                    password
+                );
+
+            }
+
+            catch (error) {
+
+                console.error(error);
+
+                $("loginError").textContent =
+                    "Login failed. Check email/password.";
+
+            }
+
+        }
+    );
+
 }
 
-function renderFirmwareHistory(){
-  const entries=Object.entries(state.firmwareHistory||{})
-    .sort(([a],[b])=>Number(b)-Number(a)).slice(0,20);
 
-  if(!entries.length){
-    $("firmwareHistory").textContent="No firmware releases yet.";
-    return;
-  }
+// ======================================================
+// LOGOUT
+// ======================================================
 
-  $("firmwareHistory").innerHTML=entries.map(([,x])=>
-    `<div class="ota-history-item">
-      <b>v${x.version||"--"} · Build ${x.build??"--"}</b>
-      <span>${x.releaseNotes||"No release notes"}</span>
-      <small>${formatTime(x.publishedAt)} · ${x.hardwareVersion||"--"}</small>
-    </div>`
-  ).join("");
+if ($("logoutBtn")) {
+
+    $("logoutBtn").onclick = async () => {
+
+        await signOut(auth);
+
+    };
+
 }
 
-$("uploadFirmware").onclick=async()=>{
-  const file=$("firmwareFile").files[0];
-  const version=$("firmwareVersionInput").value.trim();
-  const build=safeNum($("firmwareBuildInput").value,0);
-  const hardware=$("firmwareHardwareInput").value.trim();
-  const notes=$("releaseNotesInput").value.trim();
 
-  if(!file)return showToast("Select a .bin firmware file","error");
-  if(!file.name.toLowerCase().endsWith(".bin"))
-    return showToast("Only .bin firmware files are accepted","error");
-  if(!version)return showToast("Enter firmware version","error");
-  if(build<=0)return showToast("Enter a valid build number","error");
-  if(!hardware)return showToast("Enter hardware version","error");
+// ======================================================
+// NAVIGATION
+// ======================================================
 
-  const currentBuild=safeNum(state.status.firmwareBuild,0);
-  if(build<=currentBuild)
-    return showToast("Build must be newer than the running build","error");
+document
+    .querySelectorAll("[data-section]")
+    .forEach(button => {
 
-  try{
-    $("uploadStatus").textContent="Calculating SHA-256...";
-    $("uploadProgress").style.width="0%";
+        button.addEventListener(
+            "click",
+            () => {
 
-    const buffer=await file.arrayBuffer();
-    const sha=await sha256Hex(buffer);
+                navigate(
+                    button.dataset.section
+                );
 
-    const safeName=file.name.replace(/[^a-zA-Z0-9._-]/g,"_");
-    const path=`firmware/${hardware}/build-${build}-${safeName}`;
-    const sref=storageRef(storage,path);
+            }
+        );
 
-    $("uploadStatus").textContent="Uploading firmware...";
-    const task=uploadBytesResumable(sref,file,{
-      contentType:"application/octet-stream",
-      customMetadata:{
-        firmwareVersion:version,
-        firmwareBuild:String(build),
-        hardwareVersion:hardware,
-        sha256:sha
-      }
     });
 
-    await new Promise((resolve,reject)=>{
-      task.on("state_changed",
-        snap=>{
-          const p=(snap.bytesTransferred/snap.totalBytes)*100;
-          $("uploadProgress").style.width=p+"%";
-          $("uploadStatus").textContent=`Uploading ${p.toFixed(0)}%`;
+
+function navigate(section) {
+
+    document
+        .querySelectorAll(".page-section")
+        .forEach(sectionElement => {
+
+            sectionElement.classList.remove(
+                "active-section"
+            );
+
+        });
+
+
+    const target =
+        $(section);
+
+    if (target) {
+
+        target.classList.add(
+            "active-section"
+        );
+
+    }
+
+
+    document
+        .querySelectorAll(".nav-item")
+        .forEach(button => {
+
+            button.classList.remove(
+                "active"
+            );
+
+        });
+
+
+    const nav =
+        document.querySelector(
+            `.nav-item[data-section="${section}"]`
+        );
+
+
+    if (nav) {
+
+        nav.classList.add("active");
+
+    }
+
+
+    const titles = {
+
+        dashboard:
+            "System Dashboard",
+
+        zones:
+            "3-Zone Monitor",
+
+        sensors:
+            "Gas Sensors",
+
+        analytics:
+            "Analytics",
+
+        control:
+            "System Controls",
+
+        history:
+            "System History",
+
+        settings:
+            "System Settings",
+
+        diagnostics:
+            "Diagnostics",
+
+        firmware:
+            "Firmware Management"
+
+    };
+
+
+    if ($("pageTitle")) {
+
+        $("pageTitle").textContent =
+            titles[section] ||
+            "SILO Guard";
+
+    }
+
+}
+
+
+// ======================================================
+// AUTH STATE
+// ======================================================
+
+onAuthStateChanged(
+    auth,
+    user => {
+
+        if (user) {
+
+            $("loginScreen")
+                ?.classList
+                .add("hidden");
+
+            $("app")
+                ?.classList
+                .remove("hidden");
+
+            startFirebase();
+
+        }
+
+        else {
+
+            $("loginScreen")
+                ?.classList
+                .remove("hidden");
+
+            $("app")
+                ?.classList
+                .add("hidden");
+
+        }
+
+    }
+);
+
+
+// ======================================================
+// FIREBASE START
+// ======================================================
+
+let firebaseStarted = false;
+
+function startFirebase() {
+
+    if (firebaseStarted) return;
+
+    firebaseStarted = true;
+
+
+    // STATUS
+
+    onValue(
+
+        ref(db, "siloSystem/status"),
+
+        snapshot => {
+
+            state.status =
+                snapshot.val() || {};
+
+            renderStatus();
+
+            renderCuring();
+
+            updateOnline();
+
         },
-        reject,resolve
-      );
-    });
 
-    const url=await getDownloadURL(sref);
-    const now=Date.now();
-    const release={
-      version,build,hardwareVersion:hardware,
-      fileName:file.name,fileSize:file.size,
-      sha256:sha,url,
-      releaseNotes:notes,publishedAt:now
+        error => {
+
+            console.error(
+                "Status error:",
+                error
+            );
+
+        }
+
+    );
+
+
+    // SENSORS
+
+    onValue(
+
+        ref(db, "siloSystem/sensors"),
+
+        snapshot => {
+
+            state.sensors =
+                snapshot.val() || {};
+
+            renderSensors();
+
+            renderZones();
+
+        }
+
+    );
+
+
+    // ZONES
+
+    onValue(
+
+        ref(db, "siloSystem/zones"),
+
+        snapshot => {
+
+            state.zones =
+                snapshot.val() || {};
+
+            renderZones();
+
+        }
+
+    );
+
+
+    // CONTROL
+
+    onValue(
+
+        ref(db, "siloSystem/control"),
+
+        snapshot => {
+
+            state.control =
+                snapshot.val() || {};
+
+            renderControls();
+
+        }
+
+    );
+
+
+    // SETTINGS
+
+    onValue(
+
+        ref(db, "siloSystem/settings"),
+
+        snapshot => {
+
+            state.settings =
+                snapshot.val() || {};
+
+            renderSettings();
+
+            renderStatus();
+
+        }
+
+    );
+
+
+    // DIAGNOSTICS
+
+    onValue(
+
+        ref(db, "siloSystem/diagnostics"),
+
+        snapshot => {
+
+            state.diagnostics =
+                snapshot.val() || {};
+
+            renderDiagnostics();
+
+        }
+
+    );
+
+
+    // HISTORY
+
+    onValue(
+
+        ref(db, "siloSystem/history"),
+
+        snapshot => {
+
+            state.history =
+                snapshot.val() || {};
+
+            renderHistory();
+
+        }
+
+    );
+
+
+    // ==================================================
+    // FIRMWARE
+    // ==================================================
+
+    onValue(
+
+        ref(db, "siloSystem/firmware"),
+
+        snapshot => {
+
+            const data =
+                snapshot.val() || {};
+
+
+            state.firmware = {
+
+                latest:
+                    data.latest || {},
+
+                command:
+                    data.command || {},
+
+                device:
+                    data.device || {},
+
+                history:
+                    data.history || {}
+
+            };
+
+
+            renderFirmware();
+
+        },
+
+        error => {
+
+            console.error(
+                "Firmware Firebase error:",
+                error
+            );
+
+        }
+
+    );
+
+}
+
+
+// ======================================================
+// STATUS
+// ======================================================
+
+function renderStatus() {
+
+    const s = state.status;
+
+    const dangerThreshold =
+        number(
+            state.settings.gasThreshold,
+            2000
+        );
+
+    const warningThreshold =
+        number(
+            state.settings.warningThreshold,
+            1500
+        );
+
+
+    const maxGas =
+        number(
+            s.maxGasReading,
+            0
+        );
+
+
+    if ($("maxGas"))
+        $("maxGas").textContent =
+            Math.round(maxGas);
+
+
+    if ($("averageGas"))
+        $("averageGas").textContent =
+            Math.round(
+                number(
+                    s.averageGasReading
+                )
+            );
+
+
+    if ($("thresholdText"))
+        $("thresholdText").textContent =
+            dangerThreshold;
+
+
+    if ($("gasProgress"))
+        $("gasProgress").style.width =
+            Math.min(
+                maxGas / 4095 * 100,
+                100
+            ) + "%";
+
+
+    const battery =
+        number(
+            s.batteryPercentage,
+            0
+        );
+
+
+    if ($("batteryVoltage"))
+        $("batteryVoltage").textContent =
+            number(
+                s.batteryVoltage
+            ).toFixed(2) + "V";
+
+
+    if ($("batteryPercentage"))
+        $("batteryPercentage").textContent =
+            Math.round(battery) + "%";
+
+
+    if ($("batteryProgress"))
+        $("batteryProgress").style.width =
+            battery + "%";
+
+
+    if ($("fanStatus"))
+        $("fanStatus").textContent =
+            s.fan
+                ? "ACTIVE"
+                : "STANDBY";
+
+
+    if ($("activeReason"))
+        $("activeReason").textContent =
+            s.activeFanReason ||
+            "STANDBY";
+
+
+    if ($("activeZone"))
+        $("activeZone").textContent =
+            number(
+                s.activeRotZone,
+                -1
+            ) < 0
+
+                ? "None"
+
+                : "Zone " +
+                  s.activeRotZone;
+
+
+    if ($("rotAngle"))
+        $("rotAngle").textContent =
+            number(
+                s.preciseRotAngle
+            ).toFixed(1) + "°";
+
+
+    if ($("vectorMagnitude"))
+        $("vectorMagnitude").textContent =
+            number(
+                s.vectorMagnitude
+            ).toFixed(0);
+
+
+    if ($("fillStatus"))
+        $("fillStatus").textContent =
+            s.fillStatus ||
+            "0% (EMPTY)";
+
+
+    if ($("internalTemp"))
+        $("internalTemp").textContent =
+            number(
+                s.temperatureInternal
+            ).toFixed(1) + "°C";
+
+
+    if ($("internalHumidity"))
+        $("internalHumidity").textContent =
+            Math.round(
+                number(
+                    s.humidityInternal
+                )
+            ) + "%";
+
+
+    if ($("externalTemp"))
+        $("externalTemp").textContent =
+            number(
+                s.temperatureExternal
+            ).toFixed(1) + "°C";
+
+
+    if ($("externalHumidity"))
+        $("externalHumidity").textContent =
+            Math.round(
+                number(
+                    s.humidityExternal
+                )
+            ) + "%";
+
+
+    if ($("firmwareVersion"))
+        $("firmwareVersion").textContent =
+            s.firmwareVersion ||
+            "--";
+
+
+    if ($("hardwareVersion"))
+        $("hardwareVersion").textContent =
+            s.hardwareVersion ||
+            "--";
+
+
+    if ($("ipAddress"))
+        $("ipAddress").textContent =
+            s.ipAddress ||
+            "--";
+
+
+    if ($("wifiRSSI"))
+        $("wifiRSSI").textContent =
+            s.wifiRSSI !== undefined
+                ? s.wifiRSSI + " dBm"
+                : "--";
+
+
+    if ($("lastUpdate"))
+        $("lastUpdate").textContent =
+            formatTime(
+                s.lastUpdate
+            );
+
+
+    if ($("lastHeartbeatValue"))
+        $("lastHeartbeatValue").textContent =
+            formatTime(
+                s.lastHeartbeat
+            );
+
+
+    const danger =
+        Boolean(
+            s.gasDetected
+        );
+
+
+    const warning =
+        maxGas >= warningThreshold;
+
+
+    if ($("systemBadge")) {
+
+        $("systemBadge")
+            .className =
+                "system-badge " +
+                (
+                    danger
+                        ? "danger"
+                        : warning
+                            ? "warning"
+                            : "safe"
+                );
+
+
+        $("systemBadge")
+            .textContent =
+                danger
+                    ? "GAS DETECTED"
+                    : warning
+                        ? "WARNING"
+                        : "SYSTEM SECURE";
+
+    }
+
+
+    if ($("dangerAlert")) {
+
+        $("dangerAlert")
+            .classList
+            .toggle(
+                "hidden",
+                !danger && !warning
+            );
+
+    }
+
+
+    if ($("dangerMessage")) {
+
+        $("dangerMessage")
+            .textContent =
+
+            danger
+
+                ? `Gas danger detected. Maximum ADC ${Math.round(maxGas)}.`
+
+                : warning
+
+                    ? `Gas warning level detected. Current ADC ${Math.round(maxGas)}.`
+
+                    : "Normal.";
+
+    }
+
+
+    if ($("gasState")) {
+
+        $("gasState")
+            .textContent =
+                danger
+                    ? "DANGER"
+                    : warning
+                        ? "WARNING"
+                        : "NORMAL";
+
+
+        $("gasState")
+            .className =
+                "pill " +
+                (
+                    danger
+                        ? "danger"
+                        : warning
+                            ? "warning"
+                            : "safe"
+                );
+
+    }
+
+}
+
+
+// ======================================================
+// CURING
+// ======================================================
+
+function renderCuring() {
+
+    const s =
+        state.status;
+
+
+    const progress =
+        Math.max(
+            0,
+            Math.min(
+                100,
+                number(
+                    s.curingProgress
+                )
+            )
+        );
+
+
+    if ($("curingProgress"))
+        $("curingProgress")
+            .style
+            .width =
+                progress + "%";
+
+
+    if ($("curingStatus"))
+        $("curingStatus")
+            .textContent =
+                s.curingStatus ||
+                "HARVEST DATE NOT SET";
+
+
+    if ($("curingDay")) {
+
+        const day =
+            number(
+                s.curingDay,
+                0
+            );
+
+        $("curingDay")
+            .textContent =
+                `${day} / 14 days`;
+
+    }
+
+
+    if ($("harvestDate"))
+        $("harvestDate")
+            .textContent =
+                s.harvestTimestamp
+                    ? formatTime(
+                        s.harvestTimestamp
+                    )
+                    : "Not set";
+
+}
+
+
+// ======================================================
+// ONLINE
+// ======================================================
+
+function updateOnline() {
+
+    const heartbeat =
+        number(
+            state.status.lastHeartbeat
+        );
+
+
+    const online =
+        heartbeat > 0 &&
+        Date.now() - heartbeat <
+            OFFLINE_TIMEOUT;
+
+
+    if ($("connectionDot")) {
+
+        $("connectionDot")
+            .classList
+            .toggle(
+                "online",
+                online
+            );
+
+        $("connectionDot")
+            .classList
+            .toggle(
+                "offline",
+                !online
+            );
+
+    }
+
+
+    if ($("connectionText"))
+        $("connectionText")
+            .textContent =
+                online
+                    ? "Device Online"
+                    : "Device Offline";
+
+
+    if ($("lastSeen"))
+        $("lastSeen")
+            .textContent =
+                online
+                    ? "Heartbeat " +
+                      shortTime(
+                          heartbeat
+                      )
+                    : heartbeat
+                        ? "Last seen " +
+                          formatTime(
+                              heartbeat
+                          )
+                        : "Waiting for ESP32...";
+
+}
+
+
+setInterval(
+    updateOnline,
+    3000
+);
+
+
+// ======================================================
+// SENSORS
+// ======================================================
+
+function sensorStatus(value) {
+
+    const danger =
+        number(
+            state.settings.gasThreshold,
+            2000
+        );
+
+    const warning =
+        number(
+            state.settings.warningThreshold,
+            1500
+        );
+
+
+    if (value >= danger)
+        return {
+            className: "danger",
+            text: "DANGER"
+        };
+
+
+    if (value >= warning)
+        return {
+            className: "warning",
+            text: "WARNING"
+        };
+
+
+    return {
+        className: "",
+        text: "NORMAL"
     };
 
-    await update(ref(db,"siloSystem/firmware/latest"),release);
-    await update(ref(db,`siloSystem/firmware/history/${now}`),release);
+}
 
-    $("uploadProgress").style.width="100%";
-    $("uploadStatus").textContent="Published successfully.";
-    showToast(`Firmware v${version} published`);
-  }catch(e){
-    console.error(e);
-    $("uploadStatus").textContent="Upload failed.";
-    showToast("Firmware upload failed: "+e.message,"error");
-  }
+
+function renderSensors() {
+
+    let html = "";
+
+
+    for (
+        let i = 1;
+        i <= 9;
+        i++
+    ) {
+
+        const value =
+            number(
+                state.sensors[
+                    "gas" + i
+                ]
+            );
+
+
+        const status =
+            sensorStatus(value);
+
+
+        const diagnostic =
+            state.diagnostics[
+                "mq" + i
+            ] || {};
+
+
+        const healthy =
+            diagnostic.healthy !== false;
+
+
+        html += `
+
+        <div class="sensor-card ${status.className}">
+
+            <div class="sensor-top">
+
+                <span class="sensor-name">
+                    MQ-135 Sensor ${i}
+                </span>
+
+                <span class="sensor-status ${status.className}">
+                    ${status.text}
+                </span>
+
+            </div>
+
+            <div class="sensor-value">
+                ${Math.round(value)}
+            </div>
+
+            <div class="sensor-meta">
+
+                <span>
+                    ADC 0–4095
+                </span>
+
+                <span class="${healthy ? "ok" : "bad"}">
+                    ${healthy
+                        ? "● HEALTHY"
+                        : "● FAULT"}
+                </span>
+
+            </div>
+
+        </div>
+
+        `;
+
+    }
+
+
+    if ($("allSensors"))
+        $("allSensors").innerHTML =
+            html;
+
+
+    if ($("sensorPreview"))
+        $("sensorPreview").innerHTML =
+            html;
+
+}
+
+
+// ======================================================
+// ZONES
+// ======================================================
+
+const zoneSensors = {
+
+    1: [1, 2, 3],
+
+    2: [4, 5, 6],
+
+    3: [7, 8, 9]
+
 };
 
-$("deployLatest").onclick=async()=>{
-  const latest=state.firmware.latest||{};
-  const device=state.firmwareDevice||{};
 
-  if(!latest.url)return showToast("No firmware URL available","error");
-  if(Boolean(state.status.gasDetected)||Boolean(state.control.emergency))
-    return showToast("OTA blocked during gas/emergency","error");
+function zoneInfo(zone) {
 
-  if(!confirm(`Deploy v${latest.version} build ${latest.build} to ${device.deviceId||"device"}?`))
-    return;
+    const sensors =
+        zoneSensors[zone];
 
-  try{
-    const command={
-      commandId:"ota-"+Date.now(),
-      targetDevice:device.deviceId||"silo-guard-01",
-      firmwareUrl:latest.url,
-      firmwareVersion:latest.version,
-      firmwareBuild:Number(latest.build),
-      firmwareSize:Number(latest.fileSize),
-      firmwareSha256:latest.sha256,
-      hardwareVersion:latest.hardwareVersion,
-      releaseNotes:latest.releaseNotes||"",
-      requestedAt:Date.now()
+
+    const values =
+        sensors.map(
+            sensor =>
+                number(
+                    state.sensors[
+                        "gas" + sensor
+                    ]
+                )
+        );
+
+
+    const firebaseZone =
+        state.zones[
+            "zone" + zone
+        ] || {};
+
+
+    return {
+
+        values,
+
+        peak:
+            number(
+                firebaseZone.peak,
+                Math.max(...values)
+            ),
+
+        average:
+            number(
+                firebaseZone.average,
+                values.reduce(
+                    (a,b) => a+b,
+                    0
+                ) / 3
+            ),
+
+        danger:
+            Boolean(
+                firebaseZone.danger
+            )
+
     };
 
-    await update(ref(db,"siloSystem/firmware/command"),command);
-    showToast("OTA command sent");
-  }catch(e){
-    showToast("OTA command failed: "+e.message,"error");
-  }
-};
+}
 
-$("clearOtaCommand").onclick=async()=>{
-  if(!confirm("Clear the pending OTA command?"))return;
-  try{
-    await remove(ref(db,"siloSystem/firmware/command"));
-    showToast("OTA command cleared");
-  }catch(e){
-    showToast("Could not clear OTA command: "+e.message,"error");
-  }
-};
 
-window.addEventListener("DOMContentLoaded",()=>initCharts());
-setInterval(()=>{$("clock").textContent=new Date().toLocaleTimeString("en-IN")},1000);
-$("clock").textContent=new Date().toLocaleTimeString("en-IN");
+function renderZones() {
+
+    let html = "";
+
+
+    for (
+        let zone = 1;
+        zone <= 3;
+        zone++
+    ) {
+
+        const info =
+            zoneInfo(zone);
+
+
+        const warning =
+            number(
+                state.settings.warningThreshold,
+                1500
+            );
+
+
+        const danger =
+            info.danger ||
+            info.peak >=
+                number(
+                    state.settings.gasThreshold,
+                    2000
+                );
+
+
+        const warningState =
+            info.peak >= warning;
+
+
+        html += `
+
+        <div class="zone-card ${
+            danger
+                ? "danger"
+                : warningState
+                    ? "warning"
+                    : ""
+        }">
+
+            <div class="zone-header">
+
+                <span class="zone-name">
+                    Zone ${zone}
+                </span>
+
+                <span class="zone-status">
+
+                    ${
+                        danger
+                            ? "DANGER"
+                            : warningState
+                                ? "WARNING"
+                                : "NORMAL"
+                    }
+
+                </span>
+
+            </div>
+
+
+            <div class="zone-value">
+
+                ${Math.round(info.peak)}
+
+            </div>
+
+
+            <small>
+                Maximum gas ADC
+            </small>
+
+
+            <div class="zone-sensors">
+
+                ${zoneSensors[zone].map(
+                    sensor => `
+
+                    <div class="zone-sensor">
+
+                        <small>
+                            MQ-${sensor}
+                        </small>
+
+                        <strong>
+                            ${Math.round(
+                                number(
+                                    state.sensors[
+                                        "gas" + sensor
+                                    ]
+                                )
+                            )}
+                        </strong>
+
+                    </div>
+
+                    `
+                ).join("")}
+
+            </div>
+
+
+            <div class="zone-foot">
+
+                Average:
+                ${Math.round(info.average)}
+
+            </div>
+
+        </div>
+
+        `;
+
+    }
+
+
+    if ($("zoneCards"))
+        $("zoneCards").innerHTML =
+            html;
+
+
+    if ($("zonePreview"))
+        $("zonePreview").innerHTML =
+            html;
+
+}
+
+
+// ======================================================
+// CONTROLS
+// ======================================================
+
+function renderControls() {
+
+    const c =
+        state.control;
+
+    const s =
+        state.status;
+
+
+    const fan =
+        Boolean(c.fan);
+
+
+    const buzzer =
+        Boolean(c.buzzer);
+
+
+    const remote =
+        c.mode === "REMOTE";
+
+
+    if ($("fanToggle"))
+        $("fanToggle")
+            .textContent =
+                fan
+                    ? "FAN ON"
+                    : "FAN OFF";
+
+
+    if ($("buzzerToggle"))
+        $("buzzerToggle")
+            .textContent =
+                buzzer
+                    ? "BUZZER ON"
+                    : "BUZZER OFF";
+
+
+    if ($("quickFan"))
+        $("quickFan")
+            .querySelector("strong")
+            .textContent =
+                fan ? "ON" : "OFF";
+
+
+    if ($("quickBuzzer"))
+        $("quickBuzzer")
+            .querySelector("strong")
+            .textContent =
+                buzzer ? "ON" : "OFF";
+
+
+    if ($("actualFanState"))
+        $("actualFanState")
+            .textContent =
+                s.fan
+                    ? "ON"
+                    : "OFF";
+
+
+    if ($("activeFanReasonControl"))
+        $("activeFanReasonControl")
+            .textContent =
+                s.activeFanReason ||
+                "STANDBY";
+
+
+    if ($("controlModeText"))
+        $("controlModeText")
+            .textContent =
+                c.mode ||
+                "AUTO";
+
+
+    if ($("autoMode"))
+        $("autoMode")
+            .classList
+            .toggle(
+                "active",
+                !remote
+            );
+
+
+    if ($("remoteMode"))
+        $("remoteMode")
+            .classList
+            .toggle(
+                "active",
+                remote
+            );
+
+
+    if ($("emergencyState"))
+        $("emergencyState")
+            .textContent =
+                c.emergency
+                    ? "ACTIVE"
+                    : "CLEAR";
+
+}
+
+
+async function sendControl(values,message) {
+
+    try {
+
+        await update(
+
+            ref(
+                db,
+                "siloSystem/control"
+            ),
+
+            {
+
+                ...values,
+
+                commandId:
+                    "cmd-" +
+                    Date.now()
+
+            }
+
+        );
+
+
+        showToast(message);
+
+    }
+
+    catch (error) {
+
+        console.error(error);
+
+        showToast(
+            "Command failed",
+            "error"
+        );
+
+    }
+
+}
+
+
+async function toggleFan() {
+
+    await sendControl(
+
+        {
+
+            mode: "REMOTE",
+
+            fan:
+                !Boolean(
+                    state.control.fan
+                )
+
+        },
+
+        "Fan command sent"
+
+    );
+
+}
+
+
+async function toggleBuzzer() {
+
+    await sendControl(
+
+        {
+
+            mode: "REMOTE",
+
+            buzzer:
+                !Boolean(
+                    state.control.buzzer
+                )
+
+        },
+
+        "Buzzer command sent"
+
+    );
+
+}
+
+
+if ($("fanToggle"))
+    $("fanToggle").onclick =
+        toggleFan;
+
+
+if ($("quickFan"))
+    $("quickFan").onclick =
+        toggleFan;
+
+
+if ($("buzzerToggle"))
+    $("buzzerToggle").onclick =
+        toggleBuzzer;
+
+
+if ($("quickBuzzer"))
+    $("quickBuzzer").onclick =
+        toggleBuzzer;
+
+
+if ($("autoMode"))
+    $("autoMode").onclick =
+        () =>
+            sendControl(
+                {mode:"AUTO"},
+                "AUTO mode enabled"
+            );
+
+
+if ($("remoteMode"))
+    $("remoteMode").onclick =
+        () =>
+            sendControl(
+                {mode:"REMOTE"},
+                "REMOTE mode enabled"
+            );
+
+
+if ($("emergencyBtn"))
+    $("emergencyBtn").onclick =
+        async () => {
+
+            if (
+                !confirm(
+                    "Activate emergency?"
+                )
+            )
+                return;
+
+
+            await sendControl(
+
+                {
+
+                    mode: "REMOTE",
+
+                    fan: true,
+
+                    buzzer: true,
+
+                    emergency: true
+
+                },
+
+                "Emergency activated"
+
+            );
+
+        };
+
+
+if ($("quickEmergency"))
+    $("quickEmergency").onclick =
+        () =>
+            $("emergencyBtn")
+                ?.click();
+
+
+if ($("resetEmergency"))
+    $("resetEmergency").onclick =
+        async () => {
+
+            if (
+                !confirm(
+                    "Reset emergency?"
+                )
+            )
+                return;
+
+
+            await sendControl(
+
+                {
+
+                    mode: "AUTO",
+
+                    fan: false,
+
+                    buzzer: false,
+
+                    emergency: false
+
+                },
+
+                "Emergency reset"
+
+            );
+
+        };
+
+
+// ======================================================
+// SETTINGS
+// ======================================================
+
+function renderSettings() {
+
+    if ($("gasThresholdInput"))
+        $("gasThresholdInput").value =
+            number(
+                state.settings.gasThreshold,
+                2000
+            );
+
+
+    if ($("warningThresholdInput"))
+        $("warningThresholdInput").value =
+            number(
+                state.settings.warningThreshold,
+                1500
+            );
+
+}
+
+
+async function saveSetting(name,inputId) {
+
+    const value =
+        number(
+            $(inputId)?.value,
+            -1
+        );
+
+
+    if (
+        value < 0 ||
+        value > 4095
+    ) {
+
+        showToast(
+            "Value must be 0–4095",
+            "error"
+        );
+
+        return;
+
+    }
+
+
+    try {
+
+        await update(
+
+            ref(
+                db,
+                "siloSystem/settings"
+            ),
+
+            {
+
+                [name]: value
+
+            }
+
+        );
+
+
+        showToast(
+            "Setting saved"
+        );
+
+    }
+
+    catch (error) {
+
+        showToast(
+            error.message,
+            "error"
+        );
+
+    }
+
+}
+
+
+if ($("saveThreshold"))
+    $("saveThreshold").onclick =
+        () =>
+            saveSetting(
+                "gasThreshold",
+                "gasThresholdInput"
+            );
+
+
+if ($("saveWarning"))
+    $("saveWarning").onclick =
+        () =>
+            saveSetting(
+                "warningThreshold",
+                "warningThresholdInput"
+            );
+
+
+// ======================================================
+// DIAGNOSTICS
+// ======================================================
+
+function renderDiagnostics() {
+
+    const d =
+        state.diagnostics;
+
+
+    if ($("diagFirebase"))
+        $("diagFirebase").textContent =
+            d.firebaseHealthy === false
+                ? "FAULT"
+                : "OK";
+
+
+    if ($("diagWiFi"))
+        $("diagWiFi").textContent =
+            d.wifiConnected === false
+                ? "FAULT"
+                : "OK";
+
+
+    if ($("diagDhtInt"))
+        $("diagDhtInt").textContent =
+            d.dhtInternalHealthy === false
+                ? "FAULT"
+                : "OK";
+
+
+    if ($("diagDhtExt"))
+        $("diagDhtExt").textContent =
+            d.dhtExternalHealthy === false
+                ? "FAULT"
+                : "OK";
+
+
+    if ($("diagFan"))
+        $("diagFan").textContent =
+            d.fanDiagnosticFault
+                ? "FAULT"
+                : "COMMAND OK";
+
+
+    if ($("diagHeartbeat"))
+        $("diagHeartbeat").textContent =
+            formatTime(
+                state.status.lastHeartbeat
+            );
+
+
+    if ($("mqDiagnostics")) {
+
+        let html = "";
+
+
+        for (
+            let i=1;
+            i<=9;
+            i++
+        ) {
+
+            const x =
+                d["mq"+i] || {};
+
+
+            html += `
+
+            <div class="diag-row">
+
+                <span>
+                    MQ-135 ${i}
+                </span>
+
+                <b class="${
+                    x.healthy === false
+                        ? "bad"
+                        : "ok"
+                }">
+
+                    ${
+                        x.healthy === false
+                            ? "FAULT"
+                            : "HEALTHY"
+                    }
+
+                </b>
+
+            </div>
+
+            `;
+
+        }
+
+
+        $("mqDiagnostics").innerHTML =
+            html;
+
+    }
+
+}
+
+
+// ======================================================
+// HISTORY
+// ======================================================
+
+function renderHistory() {
+
+    const entries =
+        Object.entries(
+            state.history
+        )
+        .sort(
+            ([a],[b]) =>
+                Number(b)-Number(a)
+        )
+        .slice(0,500);
+
+
+    if ($("historyCount"))
+        $("historyCount").textContent =
+            `${Object.keys(state.history).length} total records`;
+
+
+    if (!$("historyTable"))
+        return;
+
+
+    $("historyTable").innerHTML =
+
+        entries.length
+
+            ? entries.map(
+                ([timestamp,x]) => `
+
+                <tr>
+
+                    <td>
+                        ${formatTime(timestamp)}
+                    </td>
+
+                    <td>
+                        ${
+                            number(
+                                x.activeZone,
+                                -1
+                            ) > 0
+                                ? "Zone " +
+                                  x.activeZone
+                                : "None"
+                        }
+                    </td>
+
+                    <td>
+                        ${Math.round(
+                            number(x.maxGas)
+                        )}
+                    </td>
+
+                    <td>
+                        ${Math.round(
+                            number(x.averageGas)
+                        )}
+                    </td>
+
+                    <td>
+                        ${number(
+                            x.temperature
+                        ).toFixed(1)}°C
+                    </td>
+
+                    <td>
+                        ${number(
+                            x.humidity
+                        ).toFixed(1)}%
+                    </td>
+
+                    <td>
+                        ${number(
+                            x.battery
+                        ).toFixed(2)}V
+                    </td>
+
+                    <td>
+                        ${x.fan ? "ON" : "OFF"}
+                    </td>
+
+                    <td>
+                        ${
+                            x.gasDetected
+                                ? "DANGER"
+                                : "NORMAL"
+                        }
+                    </td>
+
+                </tr>
+
+                `
+            ).join("")
+
+            : `
+
+                <tr>
+
+                    <td colspan="9">
+                        No history available
+                    </td>
+
+                </tr>
+
+              `;
+
+}
+
+
+if ($("clearHistory"))
+    $("clearHistory").onclick =
+        async () => {
+
+            if (
+                !confirm(
+                    "Delete all history?"
+                )
+            )
+                return;
+
+
+            try {
+
+                await remove(
+                    ref(
+                        db,
+                        "siloSystem/history"
+                    )
+                );
+
+
+                showToast(
+                    "History deleted"
+                );
+
+            }
+
+            catch(error) {
+
+                showToast(
+                    error.message,
+                    "error"
+                );
+
+            }
+
+        };
+
+
+// ======================================================
+// OTA
+// ======================================================
+
+async function calculateSHA256(file) {
+
+    const buffer =
+        await file.arrayBuffer();
+
+
+    const hashBuffer =
+        await crypto.subtle.digest(
+            "SHA-256",
+            buffer
+        );
+
+
+    return Array
+        .from(
+            new Uint8Array(
+                hashBuffer
+            )
+        )
+        .map(
+            byte =>
+                byte
+                    .toString(16)
+                    .padStart(2,"0")
+        )
+        .join("");
+
+}
+
+
+function renderFirmware() {
+
+    const f =
+        state.firmware;
+
+
+    const latest =
+        f.latest || {};
+
+
+    const command =
+        f.command || {};
+
+
+    const device =
+        f.device || {};
+
+
+    const currentVersion =
+        device.firmwareVersion ||
+        state.status.firmwareVersion ||
+        "--";
+
+
+    const currentBuild =
+        device.firmwareBuild ??
+        state.status.firmwareBuild ??
+        "--";
+
+
+    const hardware =
+        device.hardwareVersion ||
+        state.status.hardwareVersion ||
+        "--";
+
+
+    if ($("otaDeviceId"))
+        $("otaDeviceId").textContent =
+            device.deviceId ||
+            DEVICE_ID;
+
+
+    if ($("otaCurrentVersion"))
+        $("otaCurrentVersion").textContent =
+            currentVersion;
+
+
+    if ($("otaCurrentBuild"))
+        $("otaCurrentBuild").textContent =
+            currentBuild;
+
+
+    if ($("otaCurrentHardware"))
+        $("otaCurrentHardware").textContent =
+            hardware;
+
+
+    if ($("otaState"))
+        $("otaState").textContent =
+            device.state ||
+            "IDLE";
+
+
+    if ($("otaProgressText"))
+        $("otaProgressText").textContent =
+            number(
+                device.progress
+            ) + "%";
+
+
+    if ($("otaLatestVersion"))
+        $("otaLatestVersion").textContent =
+            latest.version ||
+            "--";
+
+
+    if ($("otaLatestBuild"))
+        $("otaLatestBuild").textContent =
+            latest.build ??
+            "--";
+
+
+    if ($("otaHash"))
+        $("otaHash").textContent =
+            latest.sha256 ||
+            "--";
+
+
+    if ($("otaTarget"))
+        $("otaTarget").textContent =
+            command.targetDevice ||
+            "NONE";
+
+
+    renderFirmwareHistory();
+
+
+    const newer =
+        number(
+            latest.build
+        ) >
+        number(
+            currentBuild
+        );
+
+
+    const blocked =
+        Boolean(
+            state.status.gasDetected
+        ) ||
+        Boolean(
+            state.control.emergency
+        );
+
+
+    if ($("deployLatest")) {
+
+        $("deployLatest").disabled =
+            !newer ||
+            blocked ||
+            !latest.url;
+
+    }
+
+
+    if ($("otaBadge")) {
+
+        $("otaBadge")
+            .className =
+                "system-badge " +
+                (
+                    blocked
+                        ? "danger"
+                        : newer
+                            ? "warning"
+                            : "safe"
+                );
+
+
+        $("otaBadge")
+            .textContent =
+                blocked
+                    ? "OTA BLOCKED"
+                    : newer
+                        ? "UPDATE AVAILABLE"
+                        : "OTA READY";
+
+    }
+
+}
+
+
+function renderFirmwareHistory() {
+
+    const history =
+        state.firmware.history ||
+        {};
+
+
+    const entries =
+        Object.entries(history)
+        .sort(
+            ([a],[b]) =>
+                Number(b)-Number(a)
+        )
+        .slice(0,20);
+
+
+    if (!$("firmwareHistory"))
+        return;
+
+
+    if (!entries.length) {
+
+        $("firmwareHistory").innerHTML =
+            "No firmware releases yet.";
+
+        return;
+
+    }
+
+
+    $("firmwareHistory").innerHTML =
+
+        entries.map(
+            ([id,x]) => `
+
+            <div class="ota-history-item">
+
+                <b>
+                    v${escapeHTML(
+                        x.version
+                    )}
+                    · Build
+                    ${escapeHTML(
+                        x.build
+                    )}
+                </b>
+
+                <span>
+                    ${escapeHTML(
+                        x.releaseNotes ||
+                        "No release notes"
+                    )}
+                </span>
+
+                <small>
+                    ${formatTime(
+                        x.publishedAt
+                    )}
+                </small>
+
+            </div>
+
+            `
+        ).join("");
+
+}
+
+
+// ======================================================
+// UPLOAD FIRMWARE
+// ======================================================
+
+if ($("uploadFirmware")) {
+
+    $("uploadFirmware").onclick =
+        async () => {
+
+            if (!isAdmin()) {
+
+                showToast(
+                    "Admin access required",
+                    "error"
+                );
+
+                return;
+
+            }
+
+
+            const file =
+                $("firmwareFile")
+                    ?.files?.[0];
+
+
+            if (!file) {
+
+                showToast(
+                    "Select a .bin file",
+                    "error"
+                );
+
+                return;
+
+            }
+
+
+            if (
+                !file.name
+                    .toLowerCase()
+                    .endsWith(".bin")
+            ) {
+
+                showToast(
+                    "Only .bin files allowed",
+                    "error"
+                );
+
+                return;
+
+            }
+
+
+            const version =
+                $("firmwareVersionInput")
+                    .value
+                    .trim();
+
+
+            const build =
+                number(
+                    $("firmwareBuildInput")
+                        .value,
+                    0
+                );
+
+
+            const hardware =
+                $("firmwareHardwareInput")
+                    .value
+                    .trim();
+
+
+            const notes =
+                $("releaseNotesInput")
+                    .value
+                    .trim();
+
+
+            if (!version) {
+
+                showToast(
+                    "Enter firmware version",
+                    "error"
+                );
+
+                return;
+
+            }
+
+
+            if (!build) {
+
+                showToast(
+                    "Enter build number",
+                    "error"
+                );
+
+                return;
+
+            }
+
+
+            if (!hardware) {
+
+                showToast(
+                    "Enter hardware version",
+                    "error"
+                );
+
+                return;
+
+            }
+
+
+            const currentBuild =
+                number(
+                    state.status.firmwareBuild,
+                    0
+                );
+
+
+            if (
+                build <= currentBuild
+            ) {
+
+                showToast(
+                    `Build must be greater than current build ${currentBuild}`,
+                    "error"
+                );
+
+                return;
+
+            }
+
+
+            try {
+
+                $("uploadStatus")
+                    .textContent =
+                    "Calculating SHA-256...";
+
+
+                $("uploadProgress")
+                    .style
+                    .width =
+                    "0%";
+
+
+                const sha =
+                    await calculateSHA256(
+                        file
+                    );
+
+
+                const cleanName =
+                    file.name
+                        .replace(
+                            /[^a-zA-Z0-9._-]/g,
+                            "_"
+                        );
+
+
+                const path =
+                    `firmware/${hardware}/build-${build}-${cleanName}`;
+
+
+                const fileRef =
+                    storageRef(
+                        storage,
+                        path
+                    );
+
+
+                const uploadTask =
+                    uploadBytesResumable(
+
+                        fileRef,
+
+                        file,
+
+                        {
+
+                            contentType:
+                                "application/octet-stream",
+
+                            customMetadata: {
+
+                                firmwareVersion:
+                                    version,
+
+                                firmwareBuild:
+                                    String(build),
+
+                                hardwareVersion:
+                                    hardware,
+
+                                sha256:
+                                    sha
+
+                            }
+
+                        }
+
+                    );
+
+
+                await new Promise(
+                    (resolve,reject) => {
+
+                        uploadTask.on(
+
+                            "state_changed",
+
+                            snapshot => {
+
+                                const progress =
+                                    snapshot.bytesTransferred /
+                                    snapshot.totalBytes *
+                                    100;
+
+
+                                $("uploadProgress")
+                                    .style
+                                    .width =
+                                    progress +
+                                    "%";
+
+
+                                $("uploadStatus")
+                                    .textContent =
+                                    `Uploading ${progress.toFixed(0)}%`;
+
+                            },
+
+                            reject,
+
+                            resolve
+
+                        );
+
+                    }
+                );
+
+
+                $("uploadStatus")
+                    .textContent =
+                    "Getting download URL...";
+
+
+                const url =
+                    await getDownloadURL(
+                        fileRef
+                    );
+
+
+                const now =
+                    Date.now();
+
+
+                const release = {
+
+                    version,
+
+                    build,
+
+                    hardwareVersion:
+                        hardware,
+
+                    fileName:
+                        file.name,
+
+                    fileSize:
+                        file.size,
+
+                    sha256:
+                        sha,
+
+                    url,
+
+                    releaseNotes:
+                        notes,
+
+                    publishedAt:
+                        now
+
+                };
+
+
+                await set(
+
+                    ref(
+                        db,
+                        "siloSystem/firmware/latest"
+                    ),
+
+                    release
+
+                );
+
+
+                await set(
+
+                    ref(
+                        db,
+                        "siloSystem/firmware/history/" +
+                        now
+                    ),
+
+                    release
+
+                );
+
+
+                $("uploadStatus")
+                    .textContent =
+                    "Firmware published successfully.";
+
+
+                showToast(
+                    `Firmware v${version} published`
+                );
+
+            }
+
+            catch(error) {
+
+                console.error(
+                    error
+                );
+
+                $("uploadStatus")
+                    .textContent =
+                    "Upload failed.";
+
+                showToast(
+                    "Upload failed: " +
+                    error.message,
+                    "error"
+                );
+
+            }
+
+        };
+
+}
+
+
+// ======================================================
+// DEPLOY LATEST
+// ======================================================
+
+if ($("deployLatest")) {
+
+    $("deployLatest").onclick =
+        async () => {
+
+            if (!isAdmin()) {
+
+                showToast(
+                    "Admin access required",
+                    "error"
+                );
+
+                return;
+
+            }
+
+
+            const latest =
+                state.firmware.latest ||
+                {};
+
+
+            if (!latest.url) {
+
+                showToast(
+                    "No firmware available",
+                    "error"
+                );
+
+                return;
+
+            }
+
+
+            if (
+                state.status.gasDetected ||
+                state.control.emergency
+            ) {
+
+                showToast(
+                    "OTA blocked during gas/emergency",
+                    "error"
+                );
+
+                return;
+
+            }
+
+
+            if (
+                !confirm(
+                    `Deploy v${latest.version} build ${latest.build}?`
+                )
+            )
+                return;
+
+
+            try {
+
+                const command = {
+
+                    commandId:
+                        "ota-" +
+                        Date.now(),
+
+                    targetDevice:
+                        DEVICE_ID,
+
+                    firmwareUrl:
+                        latest.url,
+
+                    firmwareVersion:
+                        latest.version,
+
+                    firmwareBuild:
+                        Number(
+                            latest.build
+                        ),
+
+                    firmwareSize:
+                        Number(
+                            latest.fileSize
+                        ),
+
+                    firmwareSha256:
+                        latest.sha256,
+
+                    hardwareVersion:
+                        latest.hardwareVersion,
+
+                    releaseNotes:
+                        latest.releaseNotes ||
+                        "",
+
+                    requestedAt:
+                        Date.now(),
+
+                    requestedBy:
+                        auth.currentUser?.email ||
+                        ""
+
+                };
+
+
+                await set(
+
+                    ref(
+                        db,
+                        "siloSystem/firmware/command"
+                    ),
+
+                    command
+
+                );
+
+
+                showToast(
+                    "OTA command sent to ESP32"
+                );
+
+            }
+
+            catch(error) {
+
+                console.error(error);
+
+                showToast(
+                    "OTA command failed: " +
+                    error.message,
+                    "error"
+                );
+
+            }
+
+        };
+
+}
+
+
+// ======================================================
+// CLEAR OTA COMMAND
+// ======================================================
+
+if ($("clearOtaCommand")) {
+
+    $("clearOtaCommand").onclick =
+        async () => {
+
+            if (!isAdmin()) {
+
+                showToast(
+                    "Admin access required",
+                    "error"
+                );
+
+                return;
+
+            }
+
+
+            if (
+                !confirm(
+                    "Clear pending OTA command?"
+                )
+            )
+                return;
+
+
+            try {
+
+                await remove(
+
+                    ref(
+                        db,
+                        "siloSystem/firmware/command"
+                    )
+
+                );
+
+
+                showToast(
+                    "OTA command cleared"
+                );
+
+            }
+
+            catch(error) {
+
+                showToast(
+                    error.message,
+                    "error"
+                );
+
+            }
+
+        };
+
+
+// ======================================================
+// CLOCK
+// ======================================================
+
+function updateClock() {
+
+    if ($("clock")) {
+
+        $("clock")
+            .textContent =
+            new Date()
+                .toLocaleTimeString(
+                    "en-IN"
+                );
+
+    }
+
+}
+
+
+setInterval(
+    updateClock,
+    1000
+);
+
+updateClock();
+
+
+// ======================================================
+// INITIAL DEFAULTS
+// ======================================================
+
+document.addEventListener(
+    "DOMContentLoaded",
+    () => {
+
+        renderSettings();
+
+        renderStatus();
+
+        renderControls();
+
+        renderFirmware();
+
+    }
+);
