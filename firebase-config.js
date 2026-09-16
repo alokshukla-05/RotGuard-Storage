@@ -1,32 +1,30 @@
-// ======================================================
 // firebase-config.js
-// ======================================================
+import { initializeApp }
+  from "https://www.gstatic.com/firebasejs/9.22.2/firebase-app.js";
 
 import {
-    initializeApp
-} from "https://www.gstatic.com/firebasejs/9.22.2/firebase-app.js";
-
-import {
-    getAuth,
-    signInWithEmailAndPassword,
-    onAuthStateChanged,
-    signOut
+  getAuth,
+  signInWithEmailAndPassword,
+  onAuthStateChanged,
+  signOut
 } from "https://www.gstatic.com/firebasejs/9.22.2/firebase-auth.js";
 
 import {
-    getDatabase,
-    ref,
-    onValue,
-    set,
-    update,
-    push,
-    remove
+  getDatabase,
+  ref,
+  onValue,
+  set,
+  update,
+  push,
+  remove
 } from "https://www.gstatic.com/firebasejs/9.22.2/firebase-database.js";
 
-
-// ======================================================
-// FIREBASE CONFIG
-// ======================================================
+import {
+  getStorage,
+  ref as storageRef,
+  uploadBytesResumable,
+  getDownloadURL
+} from "https://www.gstatic.com/firebasejs/9.22.2/firebase-storage.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyDGpagCpskeOxzVO4C5qgdVUTeWO8rUZUU",
@@ -37,37 +35,16 @@ const firebaseConfig = {
   appId: "1:1053791458330:web:fdbf5befa79aef2376eda3"
 };
 
-
-// ======================================================
-// INITIALIZE
-// ======================================================
-
 const app = initializeApp(firebaseConfig);
-
 const auth = getAuth(app);
-
 const db = getDatabase(app);
-
-
-// ======================================================
-// EXPORT
-// ======================================================
+const storage = getStorage(app);
 
 export {
-
-    app,
-    auth,
-    db,
-
-    signInWithEmailAndPassword,
-    onAuthStateChanged,
-    signOut,
-
-    ref,
-    onValue,
-    set,
-    update,
-    push,
-    remove
-
+  app, auth, db, storage,
+  signInWithEmailAndPassword,
+  onAuthStateChanged,
+  signOut,
+  ref, onValue, set, update, push, remove,
+  storageRef, uploadBytesResumable, getDownloadURL
 };
