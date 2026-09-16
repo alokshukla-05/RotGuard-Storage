@@ -1,49 +1,61 @@
 <!DOCTYPE html>
-
 <html lang="en">
 
 <head>
 
-<meta charset="UTF-8">
+  <meta charset="UTF-8">
 
-<meta
-  name="viewport"
-  content="width=device-width, initial-scale=1.0"
->
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1.0"
+  >
 
-<meta
-  name="theme-color"
-  content="#081018"
->
+  <meta
+    name="theme-color"
+    content="#081018"
+  >
 
-<title>SILO GUARD</title>
+  <meta
+    name="description"
+    content="SILO GUARD smart onion storage monitoring system"
+  >
 
-
-<link
-  rel="preconnect"
-  href="https://fonts.googleapis.com"
->
-
-<link
-  rel="preconnect"
-  href="https://fonts.gstatic.com"
->
-
-<link
-  href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
-  rel="stylesheet"
->
+  <title>SILO GUARD</title>
 
 
-<script
-  src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js">
-</script>
+  <!-- FONT -->
+
+  <link
+    rel="preconnect"
+    href="https://fonts.googleapis.com"
+  >
+
+  <link
+    rel="preconnect"
+    href="https://fonts.gstatic.com"
+    crossorigin
+  >
+
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
+    rel="stylesheet"
+  >
 
 
-<link
-  rel="stylesheet"
-  href="style.css"
->
+  <!-- CHART -->
+
+  <script
+    src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"
+    defer
+  ></script>
+
+
+  <!-- CSS -->
+
+  <link
+    rel="stylesheet"
+    href="style.css"
+  >
 
 </head>
 
@@ -51,34 +63,46 @@
 <body>
 
 
-<!-- =========================================================
+<!-- ========================================================
 LOGIN
-========================================================= -->
+======================================================== -->
 
-<div id="loginScreen" class="login-screen">
+<div
+  id="loginScreen"
+  class="login-screen"
+>
 
   <div class="login-box">
 
-    <div class="logo">
-      SG
+    <div class="login-logo">
+
+      <span>SG</span>
+
     </div>
 
-    <h1>SILO GUARD</h1>
 
-    <p>
-      Smart Onion Storage Monitoring System
-    </p>
+    <div class="login-heading">
+
+      <h1>SILO GUARD</h1>
+
+      <p>
+        Smart Onion Storage Monitoring System
+      </p>
+
+    </div>
 
 
     <form id="loginForm">
 
       <label>
+
         Email
 
         <input
           id="email"
           type="email"
-          placeholder="Firebase email"
+          autocomplete="username"
+          placeholder="Enter email"
           required
         >
 
@@ -86,12 +110,14 @@ LOGIN
 
 
       <label>
+
         Password
 
         <input
           id="password"
           type="password"
-          placeholder="Password"
+          autocomplete="current-password"
+          placeholder="Enter password"
           required
         >
 
@@ -99,8 +125,9 @@ LOGIN
 
 
       <button
+        id="loginButton"
         type="submit"
-        class="primary-btn"
+        class="primary-btn full"
       >
         SIGN IN
       </button>
@@ -111,6 +138,14 @@ LOGIN
         class="error"
       ></div>
 
+
+      <div
+        id="firebaseStatus"
+        class="firebase-status"
+      >
+        Connecting to Firebase...
+      </div>
+
     </form>
 
   </div>
@@ -119,9 +154,9 @@ LOGIN
 
 
 
-<!-- =========================================================
+<!-- ========================================================
 APPLICATION
-========================================================= -->
+======================================================== -->
 
 <div
   id="app"
@@ -129,16 +164,15 @@ APPLICATION
 >
 
 
-<!-- =========================================================
+<!-- ========================================================
 SIDEBAR
-========================================================= -->
+======================================================== -->
 
 <aside class="sidebar">
 
-
   <div class="brand">
 
-    <div class="logo small">
+    <div class="logo-small">
       SG
     </div>
 
@@ -155,14 +189,13 @@ SIDEBAR
   </div>
 
 
-
-  <nav>
-
+  <nav class="navigation">
 
     <button
       class="nav-btn active"
       data-page="dashboard"
     >
+      <span>⌂</span>
       Dashboard
     </button>
 
@@ -171,6 +204,7 @@ SIDEBAR
       class="nav-btn"
       data-page="zones"
     >
+      <span>◫</span>
       3-Zone Monitor
     </button>
 
@@ -179,6 +213,7 @@ SIDEBAR
       class="nav-btn"
       data-page="sensors"
     >
+      <span>◉</span>
       Gas Sensors
     </button>
 
@@ -187,6 +222,7 @@ SIDEBAR
       class="nav-btn"
       data-page="analytics"
     >
+      <span>⌁</span>
       Analytics
     </button>
 
@@ -195,6 +231,7 @@ SIDEBAR
       class="nav-btn"
       data-page="control"
     >
+      <span>⚙</span>
       Controls
     </button>
 
@@ -203,6 +240,7 @@ SIDEBAR
       class="nav-btn"
       data-page="history"
     >
+      <span>▤</span>
       History
     </button>
 
@@ -211,6 +249,7 @@ SIDEBAR
       class="nav-btn"
       data-page="settings"
     >
+      <span>◆</span>
       Settings
     </button>
 
@@ -219,6 +258,7 @@ SIDEBAR
       class="nav-btn"
       data-page="diagnostics"
     >
+      <span>✓</span>
       Diagnostics
     </button>
 
@@ -227,12 +267,11 @@ SIDEBAR
       class="nav-btn"
       data-page="firmware"
     >
+      <span>↻</span>
       Firmware OTA
     </button>
 
-
   </nav>
-
 
 
   <div class="sidebar-bottom">
@@ -268,418 +307,85 @@ SIDEBAR
 
   </div>
 
-
 </aside>
 
 
 
-<!-- =========================================================
+<!-- ========================================================
 MAIN
-========================================================= -->
+======================================================== -->
 
 <main class="main">
 
-
-<header class="topbar">
-
-  <div>
-
-    <h2 id="pageTitle">
-      System Dashboard
-    </h2>
-
-    <p>
-      SILO GUARD real-time monitoring
-    </p>
-
-  </div>
-
-
-  <div class="top-right">
-
-    <span
-      id="systemBadge"
-      class="badge safe"
-    >
-      SYSTEM SECURE
-    </span>
-
-    <span id="clock">
-      --:--
-    </span>
-
-  </div>
-
-</header>
-
-
-
-<!-- =========================================================
-DANGER ALERT
-========================================================= -->
-
-<div
-  id="dangerAlert"
-  class="danger-alert hidden"
->
-
-  <div class="danger-icon">
-    !
-  </div>
-
-  <div>
-
-    <strong>
-      GAS SAFETY ALERT
-    </strong>
-
-    <p id="dangerMessage">
-      Gas danger detected.
-    </p>
-
-  </div>
-
-</div>
-
-
-
-<!-- =========================================================
-DASHBOARD
-========================================================= -->
-
-<section
-  id="dashboard"
-  class="page active"
->
-
-
-<div class="stats-grid">
-
-
-  <div class="stat-card">
-
-    <span>
-      Maximum Gas
-    </span>
-
-    <strong id="maxGas">
-      0
-    </strong>
-
-    <div class="progress">
-      <i id="gasProgress"></i>
-    </div>
-
-    <small>
-      Danger threshold:
-      <b id="thresholdText">2000</b>
-    </small>
-
-  </div>
-
-
-
-  <div class="stat-card">
-
-    <span>
-      Average Gas
-    </span>
-
-    <strong id="averageGas">
-      0
-    </strong>
-
-    <small>
-      9 MQ-135 sensors
-    </small>
-
-  </div>
-
-
-
-  <div class="stat-card">
-
-    <span>
-      Battery
-    </span>
-
-    <strong id="batteryVoltage">
-      0.00 V
-    </strong>
-
-    <div class="progress">
-      <i id="batteryProgress"></i>
-    </div>
-
-    <small id="batteryPercentage">
-      0%
-    </small>
-
-  </div>
-
-
-
-  <div class="stat-card">
-
-    <span>
-      Ventilation
-    </span>
-
-    <strong id="fanStatus">
-      STANDBY
-    </strong>
-
-    <small>
-      Reason:
-      <b id="activeReason">
-        STANDBY
-      </b>
-    </small>
-
-  </div>
-
-
-</div>
-
-
-
-<div class="section-heading">
-
-  <div>
-
-    <h3>
-      System Overview
-    </h3>
-
-    <p>
-      Live SILO GUARD status
-    </p>
-
-  </div>
-
-</div>
-
-
-
-<div class="overview-grid">
-
-
-<div class="panel">
-
-  <div class="kv">
-    <span>Connection</span>
-    <b id="onlineCard">OFFLINE</b>
-  </div>
-
-  <div class="kv">
-    <span>Gas State</span>
-    <b id="gasState">NORMAL</b>
-  </div>
-
-  <div class="kv">
-    <span>Fill Status</span>
-    <b id="fillStatus">0% (EMPTY)</b>
-  </div>
-
-  <div class="kv">
-    <span>Active Zone</span>
-    <b id="activeZone">None</b>
-  </div>
-
-  <div class="kv">
-    <span>Rotation</span>
-    <b id="rotAngle">0°</b>
-  </div>
-
-  <div class="kv">
-    <span>Vector</span>
-    <b id="vectorMagnitude">0</b>
-  </div>
-
-</div>
-
-
-
-<div class="panel">
-
-  <h3>
-    Curing
-  </h3>
-
-  <div class="curing-header">
-
-    <strong id="curingStatus">
-      HARVEST DATE NOT SET
-    </strong>
-
-    <span id="curingDay">
-      0 / 14 days
-    </span>
-
-  </div>
-
-  <div class="progress big">
-    <i id="curingProgress"></i>
-  </div>
-
-  <div class="kv">
-
-    <span>
-      Harvest
-    </span>
-
-    <b id="harvestDate">
-      Not set
-    </b>
-
-  </div>
-
-</div>
-
-
-
-<div class="panel">
-
-  <h3>
-    Environment
-  </h3>
-
-  <div class="environment">
+  <header class="topbar">
 
     <div>
 
-      <small>
-        Internal
-      </small>
+      <div class="mobile-brand">
+        SILO GUARD
+      </div>
 
-      <strong id="internalTemp">
-        0.0°C
-      </strong>
+      <h2 id="pageTitle">
+        System Dashboard
+      </h2>
 
-      <span id="internalHumidity">
-        0%
+      <p>
+        Real-time onion storage monitoring
+      </p>
+
+    </div>
+
+
+    <div class="top-right">
+
+      <span
+        id="systemBadge"
+        class="badge safe"
+      >
+        SYSTEM SECURE
+      </span>
+
+      <span id="clock">
+        --:--
       </span>
 
     </div>
 
+  </header>
+
+
+
+  <!-- FIREBASE ERROR -->
+
+  <div
+    id="databaseError"
+    class="system-error hidden"
+  >
+    <strong>Firebase connection problem</strong>
+    <span id="databaseErrorText"></span>
+  </div>
+
+
+
+  <!-- DANGER -->
+
+  <div
+    id="dangerAlert"
+    class="danger-alert hidden"
+  >
+
+    <div class="danger-icon">
+      !
+    </div>
 
     <div>
 
-      <small>
-        External
-      </small>
-
-      <strong id="externalTemp">
-        0.0°C
+      <strong>
+        GAS SAFETY ALERT
       </strong>
 
-      <span id="externalHumidity">
-        0%
-      </span>
-
-    </div>
-
-  </div>
-
-</div>
-
-
-</div>
-
-
-
-<div class="section-heading">
-
-  <div>
-
-    <h3>
-      3-Zone Status
-    </h3>
-
-    <p>
-      Bottom / Middle / Top
-    </p>
-
-  </div>
-
-</div>
-
-
-<div
-  id="zonePreview"
-  class="zone-grid"
-></div>
-
-
-
-<div class="section-heading">
-
-  <div>
-
-    <h3>
-      Gas Sensors
-    </h3>
-
-    <p>
-      Live readings
-    </p>
-
-  </div>
-
-</div>
-
-
-<div
-  id="sensorPreview"
-  class="sensor-grid"
-></div>
-
-
-
-<div class="section-heading">
-
-  <div>
-
-    <h3>
-      Live Gas Graph
-    </h3>
-
-  </div>
-
-</div>
-
-
-<div class="chart-panel">
-
-  <canvas id="liveGasChart"></canvas>
-
-</div>
-
-
-
-</section>
-
-
-
-<!-- =========================================================
-ZONES
-========================================================= -->
-
-<section
-  id="zones"
-  class="page"
->
-
-  <div class="section-heading">
-
-    <div>
-
-      <h3>
-        3-Zone Monitor
-      </h3>
-
-      <p>
-        Gas distribution
+      <p id="dangerMessage">
+        Gas danger detected.
       </p>
 
     </div>
@@ -687,821 +393,1064 @@ ZONES
   </div>
 
 
-  <div
-    id="zoneCards"
-    class="zone-grid"
-  ></div>
+
+  <!-- ======================================================
+  DASHBOARD
+  ====================================================== -->
+
+  <section
+    id="dashboard"
+    class="page active"
+  >
 
 
-  <div class="chart-panel">
+    <div class="stats-grid">
 
-    <canvas id="zoneChart"></canvas>
+      <div class="stat-card">
 
-  </div>
+        <span>Maximum Gas</span>
 
-</section>
-
-
-
-<!-- =========================================================
-SENSORS
-========================================================= -->
-
-<section
-  id="sensors"
-  class="page"
->
-
-  <div class="section-heading">
-
-    <div>
-
-      <h3>
-        MQ-135 Sensors
-      </h3>
-
-      <p>
-        Individual sensor readings
-      </p>
-
-    </div>
-
-  </div>
-
-
-  <div
-    id="allSensors"
-    class="sensor-grid"
-  ></div>
-
-</section>
-
-
-
-<!-- =========================================================
-ANALYTICS
-========================================================= -->
-
-<section
-  id="analytics"
-  class="page"
->
-
-  <div class="section-heading">
-
-    <div>
-
-      <h3>
-        Analytics
-      </h3>
-
-      <p>
-        Historical telemetry
-      </p>
-
-    </div>
-
-  </div>
-
-
-  <div class="analytics-grid">
-
-    <div class="chart-panel">
-      <h3>Gas</h3>
-      <canvas id="gasHistoryChart"></canvas>
-    </div>
-
-    <div class="chart-panel">
-      <h3>Temperature</h3>
-      <canvas id="temperatureChart"></canvas>
-    </div>
-
-    <div class="chart-panel">
-      <h3>Humidity</h3>
-      <canvas id="humidityChart"></canvas>
-    </div>
-
-    <div class="chart-panel">
-      <h3>Battery</h3>
-      <canvas id="batteryChart"></canvas>
-    </div>
-
-  </div>
-
-</section>
-
-
-
-<!-- =========================================================
-CONTROL
-========================================================= -->
-
-<section
-  id="control"
-  class="page"
->
-
-  <div class="section-heading">
-
-    <div>
-
-      <h3>
-        System Controls
-      </h3>
-
-      <p>
-        Remote commands
-      </p>
-
-    </div>
-
-  </div>
-
-
-  <div class="control-grid">
-
-
-    <div class="panel">
-
-      <h3>
-        Fan
-      </h3>
-
-      <div class="control-state">
-
-        <span
-          id="fanIndicator"
-          class="indicator"
-        ></span>
-
-        <strong id="actualFanState">
-          OFF
+        <strong id="maxGas">
+          0
         </strong>
 
+        <div class="progress">
+          <i id="gasProgress"></i>
+        </div>
+
+        <small>
+          Danger:
+          <b id="thresholdText">2000</b>
+        </small>
+
       </div>
 
-      <button
-        id="fanToggle"
-        class="large-control"
-      >
-        FAN OFF
-      </button>
 
-      <small>
-        Reason:
-        <b id="activeFanReasonControl">
+      <div class="stat-card">
+
+        <span>Average Gas</span>
+
+        <strong id="averageGas">
+          0
+        </strong>
+
+        <small>
+          9 × MQ-135
+        </small>
+
+      </div>
+
+
+      <div class="stat-card">
+
+        <span>Battery</span>
+
+        <strong id="batteryVoltage">
+          0.00 V
+        </strong>
+
+        <div class="progress">
+          <i id="batteryProgress"></i>
+        </div>
+
+        <small id="batteryPercentage">
+          0%
+        </small>
+
+      </div>
+
+
+      <div class="stat-card">
+
+        <span>Ventilation</span>
+
+        <strong id="fanStatus">
           STANDBY
-        </b>
-      </small>
+        </strong>
 
-    </div>
-
-
-
-    <div class="panel">
-
-      <h3>
-        Buzzer
-      </h3>
-
-      <div class="control-state">
-
-        <span
-          id="buzzerIndicator"
-          class="indicator"
-        ></span>
+        <small>
+          Reason:
+          <b id="activeReason">
+            STANDBY
+          </b>
+        </small>
 
       </div>
 
-      <button
-        id="buzzerToggle"
-        class="large-control"
-      >
-        BUZZER OFF
-      </button>
+    </div>
+
+
+
+    <div class="section-heading">
+
+      <div>
+
+        <h3>System Overview</h3>
+
+        <p>
+          Current device condition
+        </p>
+
+      </div>
 
     </div>
 
 
 
-    <div class="panel">
+    <div class="overview-grid">
 
-      <h3>
-        Control Mode
-      </h3>
 
-      <div class="mode-buttons">
+      <div class="panel">
+
+        <div class="kv">
+          <span>Connection</span>
+          <b id="onlineCard">OFFLINE</b>
+        </div>
+
+        <div class="kv">
+          <span>Gas State</span>
+          <b id="gasState">NORMAL</b>
+        </div>
+
+        <div class="kv">
+          <span>Fill Status</span>
+          <b id="fillStatus">0% (EMPTY)</b>
+        </div>
+
+        <div class="kv">
+          <span>Active Zone</span>
+          <b id="activeZone">None</b>
+        </div>
+
+        <div class="kv">
+          <span>Rotation</span>
+          <b id="rotAngle">0°</b>
+        </div>
+
+        <div class="kv">
+          <span>Vector</span>
+          <b id="vectorMagnitude">0</b>
+        </div>
+
+      </div>
+
+
+
+      <div class="panel">
+
+        <h3>Curing</h3>
+
+        <div class="curing-header">
+
+          <strong id="curingStatus">
+            HARVEST DATE NOT SET
+          </strong>
+
+          <span id="curingDay">
+            0 / 14 days
+          </span>
+
+        </div>
+
+        <div class="progress big">
+          <i id="curingProgress"></i>
+        </div>
+
+        <div class="kv">
+
+          <span>Harvest</span>
+
+          <b id="harvestDate">
+            Not set
+          </b>
+
+        </div>
+
+      </div>
+
+
+
+      <div class="panel">
+
+        <h3>Environment</h3>
+
+        <div class="environment">
+
+          <div>
+
+            <small>Internal</small>
+
+            <strong id="internalTemp">
+              0.0°C
+            </strong>
+
+            <span id="internalHumidity">
+              0%
+            </span>
+
+          </div>
+
+
+          <div>
+
+            <small>External</small>
+
+            <strong id="externalTemp">
+              0.0°C
+            </strong>
+
+            <span id="externalHumidity">
+              0%
+            </span>
+
+          </div>
+
+        </div>
+
+      </div>
+
+    </div>
+
+
+
+    <div class="section-heading">
+
+      <div>
+
+        <h3>3-Zone Status</h3>
+
+        <p>
+          Bottom / Middle / Top
+        </p>
+
+      </div>
+
+    </div>
+
+
+    <div
+      id="zonePreview"
+      class="zone-grid"
+    ></div>
+
+
+
+    <div class="section-heading">
+
+      <div>
+
+        <h3>Gas Sensors</h3>
+
+        <p>
+          Live ADC readings
+        </p>
+
+      </div>
+
+    </div>
+
+
+    <div
+      id="sensorPreview"
+      class="sensor-grid"
+    ></div>
+
+
+
+    <div class="section-heading">
+
+      <div>
+
+        <h3>Live Gas Graph</h3>
+
+      </div>
+
+    </div>
+
+
+    <div class="chart-panel">
+
+      <canvas id="liveGasChart"></canvas>
+
+    </div>
+
+
+  </section>
+
+
+
+  <!-- ======================================================
+  ZONES
+  ====================================================== -->
+
+  <section
+    id="zones"
+    class="page"
+  >
+
+    <div class="section-heading">
+
+      <div>
+
+        <h3>3-Zone Monitor</h3>
+
+        <p>
+          Gas distribution by zone
+        </p>
+
+      </div>
+
+    </div>
+
+
+    <div
+      id="zoneCards"
+      class="zone-grid"
+    ></div>
+
+
+    <div class="chart-panel">
+
+      <canvas id="zoneChart"></canvas>
+
+    </div>
+
+  </section>
+
+
+
+  <!-- ======================================================
+  SENSORS
+  ====================================================== -->
+
+  <section
+    id="sensors"
+    class="page"
+  >
+
+    <div class="section-heading">
+
+      <div>
+
+        <h3>MQ-135 Sensors</h3>
+
+        <p>
+          Individual readings
+        </p>
+
+      </div>
+
+    </div>
+
+
+    <div
+      id="allSensors"
+      class="sensor-grid"
+    ></div>
+
+  </section>
+
+
+
+  <!-- ======================================================
+  ANALYTICS
+  ====================================================== -->
+
+  <section
+    id="analytics"
+    class="page"
+  >
+
+    <div class="section-heading">
+
+      <div>
+
+        <h3>Analytics</h3>
+
+        <p>
+          Historical telemetry
+        </p>
+
+      </div>
+
+    </div>
+
+
+    <div class="analytics-grid">
+
+      <div class="chart-panel">
+        <h3>Gas</h3>
+        <canvas id="gasHistoryChart"></canvas>
+      </div>
+
+      <div class="chart-panel">
+        <h3>Temperature</h3>
+        <canvas id="temperatureChart"></canvas>
+      </div>
+
+      <div class="chart-panel">
+        <h3>Humidity</h3>
+        <canvas id="humidityChart"></canvas>
+      </div>
+
+      <div class="chart-panel">
+        <h3>Battery</h3>
+        <canvas id="batteryChart"></canvas>
+      </div>
+
+    </div>
+
+  </section>
+
+
+
+  <!-- ======================================================
+  CONTROL
+  ====================================================== -->
+
+  <section
+    id="control"
+    class="page"
+  >
+
+    <div class="section-heading">
+
+      <div>
+
+        <h3>System Controls</h3>
+
+        <p>
+          Remote device commands
+        </p>
+
+      </div>
+
+    </div>
+
+
+    <div class="control-grid">
+
+
+      <div class="panel">
+
+        <h3>Fan</h3>
+
+        <div class="control-state">
+
+          <span
+            id="fanIndicator"
+            class="indicator"
+          ></span>
+
+          <strong id="actualFanState">
+            OFF
+          </strong>
+
+        </div>
 
         <button
-          id="autoMode"
-          class="mode active"
+          id="fanToggle"
+          class="large-control"
         >
-          AUTO
+          FAN OFF
+        </button>
+
+        <small>
+          Reason:
+          <b id="activeFanReasonControl">
+            STANDBY
+          </b>
+        </small>
+
+      </div>
+
+
+
+      <div class="panel">
+
+        <h3>Buzzer</h3>
+
+        <div class="control-state">
+
+          <span
+            id="buzzerIndicator"
+            class="indicator"
+          ></span>
+
+          <strong id="buzzerStateText">
+            OFF
+          </strong>
+
+        </div>
+
+        <button
+          id="buzzerToggle"
+          class="large-control"
+        >
+          BUZZER OFF
+        </button>
+
+      </div>
+
+
+
+      <div class="panel">
+
+        <h3>Control Mode</h3>
+
+        <div class="mode-buttons">
+
+          <button
+            id="autoMode"
+            class="mode active"
+          >
+            AUTO
+          </button>
+
+          <button
+            id="remoteMode"
+            class="mode"
+          >
+            REMOTE
+          </button>
+
+        </div>
+
+        <p>
+          Current:
+          <b id="controlModeText">
+            AUTO
+          </b>
+        </p>
+
+      </div>
+
+
+
+      <div class="panel emergency-panel">
+
+        <h3>Emergency</h3>
+
+        <p>
+          Activates emergency ventilation and alarm.
+        </p>
+
+        <button
+          id="emergencyBtn"
+          class="emergency-btn"
+        >
+          ACTIVATE EMERGENCY
         </button>
 
         <button
-          id="remoteMode"
-          class="mode"
+          id="resetEmergency"
+          class="reset-btn full"
         >
-          REMOTE
+          RESET
+        </button>
+
+        <p>
+          State:
+          <b id="emergencyState">
+            CLEAR
+          </b>
+        </p>
+
+      </div>
+
+    </div>
+
+  </section>
+
+
+
+  <!-- ======================================================
+  HISTORY
+  ====================================================== -->
+
+  <section
+    id="history"
+    class="page"
+  >
+
+    <div class="section-heading">
+
+      <div>
+
+        <h3>History</h3>
+
+        <p id="historyCount">
+          0 records
+        </p>
+
+      </div>
+
+      <button
+        id="clearHistory"
+        class="danger-outline"
+      >
+        Clear History
+      </button>
+
+    </div>
+
+
+    <div class="table-panel">
+
+      <div class="table-scroll">
+
+        <table>
+
+          <thead>
+
+            <tr>
+              <th>Time</th>
+              <th>Zone</th>
+              <th>Max Gas</th>
+              <th>Avg Gas</th>
+              <th>Temp</th>
+              <th>Humidity</th>
+              <th>Battery</th>
+              <th>Fan</th>
+              <th>Status</th>
+            </tr>
+
+          </thead>
+
+          <tbody id="historyTable"></tbody>
+
+        </table>
+
+      </div>
+
+    </div>
+
+  </section>
+
+
+
+  <!-- ======================================================
+  SETTINGS
+  ====================================================== -->
+
+  <section
+    id="settings"
+    class="page"
+  >
+
+    <div class="section-heading">
+
+      <div>
+
+        <h3>Settings</h3>
+
+        <p>
+          Device operating parameters
+        </p>
+
+      </div>
+
+    </div>
+
+
+    <div class="settings-grid">
+
+
+      <div class="panel">
+
+        <h3>Gas Danger Threshold</h3>
+
+        <input
+          id="gasThresholdInput"
+          type="number"
+          min="0"
+          max="4095"
+        >
+
+        <button
+          id="saveThreshold"
+          class="primary-btn full"
+        >
+          SAVE
         </button>
 
       </div>
 
-      <p>
-        Current:
-        <b id="controlModeText">
-          AUTO
-        </b>
-      </p>
 
-    </div>
 
+      <div class="panel">
 
+        <h3>Gas Warning Threshold</h3>
 
-    <div class="panel emergency-panel">
+        <input
+          id="warningThresholdInput"
+          type="number"
+          min="0"
+          max="4095"
+        >
 
-      <h3>
-        Emergency
-      </h3>
+        <button
+          id="saveWarning"
+          class="primary-btn full"
+        >
+          SAVE
+        </button>
 
-      <p>
-        Activates emergency ventilation and alarm.
-      </p>
-
-      <button
-        id="emergencyBtn"
-        class="emergency-btn"
-      >
-        ACTIVATE EMERGENCY
-      </button>
-
-      <button
-        id="resetEmergency"
-        class="reset-btn"
-      >
-        RESET
-      </button>
-
-      <p>
-        State:
-        <b id="emergencyState">
-          CLEAR
-        </b>
-      </p>
-
-    </div>
-
-
-  </div>
-
-</section>
-
-
-
-<!-- =========================================================
-HISTORY
-========================================================= -->
-
-<section
-  id="history"
-  class="page"
->
-
-  <div class="section-heading">
-
-    <div>
-
-      <h3>
-        History
-      </h3>
-
-      <p id="historyCount">
-        0 records
-      </p>
-
-    </div>
-
-
-    <button
-      id="clearHistory"
-      class="danger-outline"
-    >
-      Clear History
-    </button>
-
-  </div>
-
-
-  <div class="table-panel">
-
-    <div class="table-scroll">
-
-      <table>
-
-        <thead>
-
-          <tr>
-            <th>Time</th>
-            <th>Zone</th>
-            <th>Max Gas</th>
-            <th>Avg Gas</th>
-            <th>Temp</th>
-            <th>Humidity</th>
-            <th>Battery</th>
-            <th>Fan</th>
-            <th>Status</th>
-          </tr>
-
-        </thead>
-
-
-        <tbody id="historyTable"></tbody>
-
-      </table>
-
-    </div>
-
-  </div>
-
-</section>
-
-
-
-<!-- =========================================================
-SETTINGS
-========================================================= -->
-
-<section
-  id="settings"
-  class="page"
->
-
-  <div class="section-heading">
-
-    <div>
-
-      <h3>
-        Settings
-      </h3>
-
-      <p>
-        Firebase configuration parameters
-      </p>
-
-    </div>
-
-  </div>
-
-
-  <div class="settings-grid">
-
-
-    <div class="panel">
-
-      <h3>
-        Gas Danger Threshold
-      </h3>
-
-      <input
-        id="gasThresholdInput"
-        type="number"
-        min="0"
-        max="4095"
-      >
-
-      <button
-        id="saveThreshold"
-        class="primary-btn"
-      >
-        Save
-      </button>
-
-    </div>
-
-
-
-    <div class="panel">
-
-      <h3>
-        Gas Warning Threshold
-      </h3>
-
-      <input
-        id="warningThresholdInput"
-        type="number"
-        min="0"
-        max="4095"
-      >
-
-      <button
-        id="saveWarning"
-        class="primary-btn"
-      >
-        Save
-      </button>
-
-    </div>
-
-
-
-    <div class="panel">
-
-      <h3>
-        Device
-      </h3>
-
-      <div class="kv">
-        <span>IP</span>
-        <b id="ipAddress">--</b>
       </div>
 
-      <div class="kv">
-        <span>RSSI</span>
-        <b id="wifiRSSI">--</b>
-      </div>
 
-      <div class="kv">
-        <span>Firmware</span>
-        <b id="firmwareVersion">--</b>
-      </div>
 
-      <div class="kv">
-        <span>Hardware</span>
-        <b id="hardwareVersion">--</b>
+      <div class="panel">
+
+        <h3>Device</h3>
+
+        <div class="kv">
+          <span>Device ID</span>
+          <b id="deviceIdText">--</b>
+        </div>
+
+        <div class="kv">
+          <span>IP</span>
+          <b id="ipAddress">--</b>
+        </div>
+
+        <div class="kv">
+          <span>RSSI</span>
+          <b id="wifiRSSI">--</b>
+        </div>
+
+        <div class="kv">
+          <span>Firmware</span>
+          <b id="firmwareVersion">--</b>
+        </div>
+
+        <div class="kv">
+          <span>Hardware</span>
+          <b id="hardwareVersion">--</b>
+        </div>
+
       </div>
 
     </div>
 
-
-  </div>
-
-</section>
+  </section>
 
 
 
-<!-- =========================================================
-DIAGNOSTICS
-========================================================= -->
+  <!-- ======================================================
+  DIAGNOSTICS
+  ====================================================== -->
 
-<section
-  id="diagnostics"
-  class="page"
->
-
-  <div class="section-heading">
-
-    <div>
-
-      <h3>
-        Diagnostics
-      </h3>
-
-      <p>
-        ESP32 health
-      </p>
-
-    </div>
-
-  </div>
-
-
-  <div class="diagnostic-grid">
-
-
-    <div class="panel">
-
-      <div class="diag-row">
-        <span>Firebase</span>
-        <b id="diagFirebase">--</b>
-      </div>
-
-      <div class="diag-row">
-        <span>Wi-Fi</span>
-        <b id="diagWiFi">--</b>
-      </div>
-
-      <div class="diag-row">
-        <span>DHT Internal</span>
-        <b id="diagDhtInt">--</b>
-      </div>
-
-      <div class="diag-row">
-        <span>DHT External</span>
-        <b id="diagDhtExt">--</b>
-      </div>
-
-      <div class="diag-row">
-        <span>Fan Feedback</span>
-        <b id="diagFan">--</b>
-      </div>
-
-      <div class="diag-row">
-        <span>Heartbeat</span>
-        <b id="diagHeartbeat">--</b>
-      </div>
-
-    </div>
-
-
-    <div class="panel">
-
-      <h3>
-        MQ-135 Health
-      </h3>
-
-      <div id="mqDiagnostics"></div>
-
-    </div>
-
-
-  </div>
-
-</section>
-
-
-
-<!-- =========================================================
-FIRMWARE OTA
-========================================================= -->
-
-<section
-  id="firmware"
-  class="page"
->
-
-
-<div class="section-heading">
-
-  <div>
-
-    <h3>
-      Firmware Management
-    </h3>
-
-    <p>
-      Cloud OTA firmware management
-    </p>
-
-  </div>
-
-
-  <span
-    id="otaBadge"
-    class="badge safe"
+  <section
+    id="diagnostics"
+    class="page"
   >
-    OTA READY
-  </span>
 
-</div>
+    <div class="section-heading">
 
+      <div>
 
+        <h3>Diagnostics</h3>
 
-<div class="firmware-grid">
+        <p>
+          ESP32 health
+        </p>
 
+      </div>
 
-<!-- CURRENT -->
-
-<div class="panel">
-
-  <h3>
-    Current Firmware
-  </h3>
+    </div>
 
 
-  <div class="kv">
-    <span>Device ID</span>
-    <b id="otaDeviceId">--</b>
-  </div>
+    <div class="diagnostic-grid">
 
 
-  <div class="kv">
-    <span>Version</span>
-    <b id="otaCurrentVersion">--</b>
-  </div>
+      <div class="panel">
+
+        <div class="diag-row">
+          <span>Firebase</span>
+          <b id="diagFirebase">--</b>
+        </div>
+
+        <div class="diag-row">
+          <span>Wi-Fi</span>
+          <b id="diagWiFi">--</b>
+        </div>
+
+        <div class="diag-row">
+          <span>DHT Internal</span>
+          <b id="diagDhtInt">--</b>
+        </div>
+
+        <div class="diag-row">
+          <span>DHT External</span>
+          <b id="diagDhtExt">--</b>
+        </div>
+
+        <div class="diag-row">
+          <span>Fan Feedback</span>
+          <b id="diagFan">--</b>
+        </div>
+
+        <div class="diag-row">
+          <span>Heartbeat</span>
+          <b id="diagHeartbeat">--</b>
+        </div>
+
+      </div>
 
 
-  <div class="kv">
-    <span>Build</span>
-    <b id="otaCurrentBuild">--</b>
-  </div>
+      <div class="panel">
 
+        <h3>MQ-135 Health</h3>
 
-  <div class="kv">
-    <span>Hardware</span>
-    <b id="otaCurrentHardware">--</b>
-  </div>
+        <div id="mqDiagnostics"></div>
 
+      </div>
 
-  <div class="kv">
-    <span>OTA State</span>
-    <b id="otaState">--</b>
-  </div>
+    </div>
 
-
-  <div class="kv">
-    <span>Progress</span>
-    <b id="otaProgressText">0%</b>
-  </div>
-
-
-</div>
+  </section>
 
 
 
-<!-- UPLOAD -->
+  <!-- ======================================================
+  FIRMWARE
+  ====================================================== -->
 
-<div class="panel">
-
-  <h3>
-    Upload New Firmware
-  </h3>
-
-
-  <label>
-
-    Firmware `.bin`
-
-    <input
-      id="firmwareFile"
-      type="file"
-      accept=".bin"
-    >
-
-  </label>
-
-
-  <label>
-
-    Version
-
-    <input
-      id="firmwareVersionInput"
-      type="text"
-      placeholder="3.1.0"
-    >
-
-  </label>
-
-
-  <label>
-
-    Build
-
-    <input
-      id="firmwareBuildInput"
-      type="number"
-      placeholder="310"
-    >
-
-  </label>
-
-
-  <label>
-
-    Hardware
-
-    <input
-      id="firmwareHardwareInput"
-      type="text"
-      value="ESP32-DOIT-V1"
-    >
-
-  </label>
-
-
-  <label>
-
-    Release Notes
-
-    <textarea
-      id="releaseNotesInput"
-      placeholder="Bug fixes and improvements"
-    ></textarea>
-
-  </label>
-
-
-  <button
-    id="uploadFirmware"
-    class="primary-btn full"
+  <section
+    id="firmware"
+    class="page"
   >
-    UPLOAD & PUBLISH
-  </button>
+
+    <div class="section-heading">
+
+      <div>
+
+        <h3>Firmware Management</h3>
+
+        <p>
+          Cloud OTA
+        </p>
+
+      </div>
+
+      <span
+        id="otaBadge"
+        class="badge safe"
+      >
+        OTA READY
+      </span>
+
+    </div>
 
 
-  <div class="progress big">
-
-    <i id="uploadProgress"></i>
-
-  </div>
+    <div class="firmware-grid">
 
 
-  <small id="uploadStatus">
-    Select firmware `.bin`.
-  </small>
+      <div class="panel">
 
-</div>
+        <h3>Current Firmware</h3>
 
+        <div class="kv">
+          <span>Device ID</span>
+          <b id="otaDeviceId">--</b>
+        </div>
 
+        <div class="kv">
+          <span>Version</span>
+          <b id="otaCurrentVersion">--</b>
+        </div>
 
-<!-- DEPLOY -->
+        <div class="kv">
+          <span>Build</span>
+          <b id="otaCurrentBuild">--</b>
+        </div>
 
-<div class="panel">
+        <div class="kv">
+          <span>Hardware</span>
+          <b id="otaCurrentHardware">--</b>
+        </div>
 
-  <h3>
-    Latest Firmware
-  </h3>
+        <div class="kv">
+          <span>OTA State</span>
+          <b id="otaState">IDLE</b>
+        </div>
 
+        <div class="kv">
+          <span>Progress</span>
+          <b id="otaProgressText">0%</b>
+        </div>
 
-  <div class="kv">
-    <span>Version</span>
-    <b id="otaLatestVersion">--</b>
-  </div>
-
-
-  <div class="kv">
-    <span>Build</span>
-    <b id="otaLatestBuild">--</b>
-  </div>
-
-
-  <div class="kv">
-    <span>Target</span>
-    <b id="otaTarget">--</b>
-  </div>
-
-
-  <div class="hash-box">
-
-    <span>
-      SHA-256
-    </span>
-
-    <code id="otaHash">
-      --
-    </code>
-
-  </div>
-
-
-  <button
-    id="deployLatest"
-    class="primary-btn full"
-    disabled
-  >
-    DEPLOY LATEST
-  </button>
-
-
-  <button
-    id="clearOtaCommand"
-    class="reset-btn full"
-  >
-    CLEAR OTA COMMAND
-  </button>
-
-
-  <p
-    id="deployInfo"
-    class="ota-info"
-  >
-    Waiting for firmware.
-  </p>
-
-</div>
+      </div>
 
 
 
-<!-- HISTORY -->
+      <div class="panel">
 
-<div class="panel">
+        <h3>Upload Firmware</h3>
 
-  <h3>
-    Firmware History
-  </h3>
+        <label>
+          Firmware `.bin`
 
-
-  <div
-    id="firmwareHistory"
-    class="firmware-history"
-  >
-    No firmware releases.
-  </div>
-
-</div>
+          <input
+            id="firmwareFile"
+            type="file"
+            accept=".bin"
+          >
+        </label>
 
 
-</div>
+        <label>
+          Version
 
-</section>
+          <input
+            id="firmwareVersionInput"
+            type="text"
+            placeholder="3.1.0"
+          >
+        </label>
 
+
+        <label>
+          Build
+
+          <input
+            id="firmwareBuildInput"
+            type="number"
+            placeholder="310"
+          >
+        </label>
+
+
+        <label>
+          Hardware
+
+          <input
+            id="firmwareHardwareInput"
+            type="text"
+            value="ESP32-DOIT-V1"
+          >
+        </label>
+
+
+        <label>
+          Release Notes
+
+          <textarea
+            id="releaseNotesInput"
+            placeholder="Bug fixes and improvements"
+          ></textarea>
+        </label>
+
+
+        <button
+          id="uploadFirmware"
+          class="primary-btn full"
+        >
+          UPLOAD & PUBLISH
+        </button>
+
+
+        <div class="progress big">
+
+          <i id="uploadProgress"></i>
+
+        </div>
+
+
+        <small id="uploadStatus">
+          Select firmware `.bin`.
+        </small>
+
+      </div>
+
+
+
+      <div class="panel">
+
+        <h3>Latest Firmware</h3>
+
+        <div class="kv">
+          <span>Version</span>
+          <b id="otaLatestVersion">--</b>
+        </div>
+
+        <div class="kv">
+          <span>Build</span>
+          <b id="otaLatestBuild">--</b>
+        </div>
+
+        <div class="kv">
+          <span>Target</span>
+          <b id="otaTarget">--</b>
+        </div>
+
+
+        <div class="hash-box">
+
+          <span>SHA-256</span>
+
+          <code id="otaHash">
+            --
+          </code>
+
+        </div>
+
+
+        <button
+          id="deployLatest"
+          class="primary-btn full"
+          disabled
+        >
+          DEPLOY LATEST
+        </button>
+
+
+        <button
+          id="clearOtaCommand"
+          class="reset-btn full"
+        >
+          CLEAR OTA COMMAND
+        </button>
+
+
+        <p
+          id="deployInfo"
+          class="ota-info"
+        >
+          Waiting for firmware.
+        </p>
+
+      </div>
+
+
+
+      <div class="panel">
+
+        <h3>Firmware History</h3>
+
+        <div
+          id="firmwareHistory"
+          class="firmware-history"
+        >
+          No firmware releases.
+        </div>
+
+      </div>
+
+    </div>
+
+  </section>
 
 </main>
 
 </div>
 
 
+
+<!-- ========================================================
+TOAST
+======================================================== -->
 
 <div
   id="toast"
@@ -1514,7 +1463,5 @@ FIRMWARE OTA
   src="app.js"
 ></script>
 
-
 </body>
-
-  </html>
+            </html>
