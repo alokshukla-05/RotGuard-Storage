@@ -1,8 +1,9 @@
 // ============================================================
-// SILO GUARD - COMPLETE APP.JS
+// SILO GUARD - PROFESSIONAL APP.JS
 // ============================================================
 
 import {
+
   auth,
   db,
   storage,
@@ -13,13 +14,13 @@ import {
 
   ref,
   onValue,
-  get,
   update,
   remove,
 
   storageRef,
   uploadBytesResumable,
   getDownloadURL
+
 } from "./firebase-config.js";
 
 
@@ -27,16 +28,27 @@ import {
 // CONFIG
 // ============================================================
 
-const DEVICE_ID = "silo-guard-01";
+const DEVICE_ID =
+  "silo-guard-01";
 
-const OFFLINE_TIMEOUT = 15000;
+const SENSOR_COUNT =
+  9;
 
-const SENSOR_COUNT = 9;
+const OFFLINE_TIMEOUT =
+  15000;
+
+const MAX_HISTORY_ROWS =
+  500;
+
 
 const ZONES = {
+
   1: [1, 2, 3],
+
   2: [4, 5, 6],
+
   3: [7, 8, 9]
+
 };
 
 
@@ -65,23 +77,33 @@ const state = {
 };
 
 
-let started = false;
+let databaseStarted =
+  false;
 
-let liveGasChart = null;
 
-let zoneChart = null;
+let charts = {
 
-let gasHistoryChart = null;
+  live: null,
 
-let temperatureChart = null;
+  zone: null,
 
-let humidityChart = null;
+  gas: null,
 
-let batteryChart = null;
+  temperature: null,
+
+  humidity: null,
+
+  battery: null
+
+};
+
+
+let lastLiveTimestamp =
+  0;
 
 
 // ============================================================
-// SHORTCUT
+// DOM
 // ============================================================
 
 function $(id) {
@@ -91,13 +113,51 @@ function $(id) {
 }
 
 
+function safeText(
+  id,
+  value
+) {
+
+  const el = $(id);
+
+  if (el) {
+
+    el.textContent =
+      value ?? "--";
+
+  }
+
+}
+
+
+function safeHTML(
+  id,
+  value
+) {
+
+  const el = $(id);
+
+  if (el) {
+
+    el.innerHTML =
+      value ?? "";
+
+  }
+
+}
+
+
 // ============================================================
-// NUMBER
+// NUMBERS
 // ============================================================
 
-function num(value, fallback = 0) {
+function num(
+  value,
+  fallback = 0
+) {
 
-  const n = Number(value);
+  const n =
+    Number(value);
 
   return Number.isFinite(n)
     ? n
@@ -110,53 +170,78 @@ function num(value, fallback = 0) {
 // TIME
 // ============================================================
 
-function formatTime(value) {
+function formatTime(
+  value
+) {
 
-  const n = Number(value);
+  const n =
+    Number(value);
 
-  if (!Number.isFinite(n) || n <= 0) {
+  if (
+    !Number.isFinite(n) ||
+    n <= 0
+  ) {
+
     return "--";
+
   }
 
-  const date = new Date(n);
 
-  if (Number.isNaN(date.getTime())) {
+  const d =
+    new Date(n);
+
+
+  if (
+    Number.isNaN(
+      d.getTime()
+    )
+  ) {
+
     return "--";
+
   }
 
-  return date.toLocaleString("en-IN", {
 
-    day: "2-digit",
-
-    month: "short",
-
-    year: "numeric",
-
-    hour: "2-digit",
-
-    minute: "2-digit"
-
-  });
+  return d.toLocaleString(
+    "en-IN",
+    {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit"
+    }
+  );
 
 }
 
 
-function formatClock(value) {
+function formatClock(
+  value
+) {
 
-  const n = Number(value);
+  const n =
+    Number(value);
 
-  if (!Number.isFinite(n) || n <= 0) {
+  if (
+    !Number.isFinite(n) ||
+    n <= 0
+  ) {
+
     return "--";
+
   }
 
-  return new Date(n).toLocaleTimeString(
-    "en-IN",
-    {
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit"
-    }
-  );
+
+  return new Date(n)
+    .toLocaleTimeString(
+      "en-IN",
+      {
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit"
+      }
+    );
 
 }
 
@@ -165,78 +250,240 @@ function formatClock(value) {
 // TOAST
 // ============================================================
 
-function toast(message, type = "") {
+function toast(
+  message,
+  type = ""
+) {
 
-  const el = $("toast");
+  const el =
+    $("toast");
 
   if (!el) return;
 
-  el.textContent = message;
 
-  el.className = "toast show " + type;
+  el.textContent =
+    message;
 
-  clearTimeout(toast.timer);
 
-  toast.timer = setTimeout(() => {
+  el.className =
+    "toast show " +
+    type;
 
-    el.className = "toast";
 
-  }, 3500);
+  clearTimeout(
+    toast.timer
+  );
+
+
+  toast.timer =
+    setTimeout(
+      () => {
+
+        el.className =
+          "toast";
+
+      },
+      3500
+    );
 
 }
+
+
+// ============================================================
+// GLOBAL ERROR
+// ============================================================
+
+window.addEventListener(
+  "error",
+  event => {
+
+    console.error(
+      "Website error:",
+      event.error || event.message
+    );
+
+  }
+);
+
+
+window.addEventListener(
+  "unhandledrejection",
+  event => {
+
+    console.error(
+      "Unhandled promise:",
+      event.reason
+    );
+
+  }
+);
 
 
 // ============================================================
 // LOGIN
 // ============================================================
 
-$("loginForm").addEventListener(
-  "submit",
-  async event => {
+$("loginForm")
+  ?.addEventListener(
+    "submit",
+    async event => {
 
-    event.preventDefault();
+      event.preventDefault();
 
-    $("loginError").textContent = "";
 
-    try {
-
-      await signInWithEmailAndPassword(
-
-        auth,
-
-        $("email").value.trim(),
-
-        $("password").value
-
+      safeText(
+        "loginError",
+        ""
       );
 
+
+      const button =
+        $("loginButton");
+
+
+      if (button) {
+
+        button.disabled =
+          true;
+
+        button.textContent =
+          "SIGNING IN...";
+
+      }
+
+
+      try {
+
+        await signInWithEmailAndPassword(
+
+          auth,
+
+          $("email")
+            .value
+            .trim(),
+
+          $("password")
+            .value
+
+        );
+
+
+        safeText(
+          "firebaseStatus",
+          "Firebase authentication successful."
+        );
+
+      }
+
+      catch (error) {
+
+        console.error(
+          "Login:",
+          error
+        );
+
+
+        safeText(
+          "loginError",
+          firebaseError(error)
+        );
+
+
+        safeText(
+          "firebaseStatus",
+          "Authentication failed."
+        );
+
+      }
+
+      finally {
+
+        if (button) {
+
+          button.disabled =
+            false;
+
+          button.textContent =
+            "SIGN IN";
+
+        }
+
+      }
+
     }
+  );
 
-    catch (error) {
 
-      console.error(error);
+// ============================================================
+// FIREBASE ERROR
+// ============================================================
 
-      $("loginError").textContent =
-        error.message || "Login failed.";
+function firebaseError(
+  error
+) {
 
-    }
+  const code =
+    error?.code || "";
 
-  }
-);
+
+  const messages = {
+
+    "auth/invalid-credential":
+      "Invalid email or password.",
+
+    "auth/invalid-email":
+      "Invalid email address.",
+
+    "auth/user-disabled":
+      "This Firebase user is disabled.",
+
+    "auth/network-request-failed":
+      "Network connection failed.",
+
+    "permission-denied":
+      "Firebase permission denied.",
+
+    "PERMISSION_DENIED":
+      "Firebase database permission denied."
+
+  };
+
+
+  return (
+    messages[code] ||
+    error?.message ||
+    "Firebase operation failed."
+  );
+
+}
 
 
 // ============================================================
 // LOGOUT
 // ============================================================
 
-$("logoutBtn").addEventListener(
-  "click",
-  async () => {
+$("logoutBtn")
+  ?.addEventListener(
+    "click",
+    async () => {
 
-    await signOut(auth);
+      try {
 
-  }
-);
+        await signOut(auth);
+
+      }
+
+      catch (error) {
+
+        toast(
+          firebaseError(error),
+          "error"
+        );
+
+      }
+
+    }
+  );
 
 
 // ============================================================
@@ -249,13 +496,28 @@ onAuthStateChanged(
 
     if (user) {
 
-      $("loginScreen").classList.add("hidden");
+      $("loginScreen")
+        ?.classList
+        .add("hidden");
 
-      $("app").classList.remove("hidden");
 
-      if (!started) {
+      $("app")
+        ?.classList
+        .remove("hidden");
 
-        started = true;
+
+      safeText(
+        "firebaseStatus",
+        "Firebase connected."
+      );
+
+
+      if (!databaseStarted) {
+
+        databaseStarted =
+          true;
+
+        initCharts();
 
         startDatabaseListeners();
 
@@ -265,9 +527,14 @@ onAuthStateChanged(
 
     else {
 
-      $("loginScreen").classList.remove("hidden");
+      $("loginScreen")
+        ?.classList
+        .remove("hidden");
 
-      $("app").classList.add("hidden");
+
+      $("app")
+        ?.classList
+        .add("hidden");
 
     }
 
@@ -281,77 +548,100 @@ onAuthStateChanged(
 
 document
   .querySelectorAll(".nav-btn")
-  .forEach(button => {
+  .forEach(
+    button => {
 
-    button.addEventListener(
-      "click",
-      () => {
+      button.addEventListener(
+        "click",
+        () => {
 
-        openPage(button.dataset.page);
+          openPage(
+            button.dataset.page
+          );
+
+        }
+      );
+
+    }
+  );
+
+
+function openPage(
+  page
+) {
+
+  document
+    .querySelectorAll(".page")
+    .forEach(
+      section => {
+
+        section.classList
+          .remove("active");
 
       }
     );
 
-  });
 
-
-function openPage(page) {
-
-  document
-    .querySelectorAll(".page")
-    .forEach(section => {
-
-      section.classList.remove("active");
-
-    });
-
-
-  const target = $(page);
-
-  if (target) {
-
-    target.classList.add("active");
-
-  }
+  $(page)
+    ?.classList
+    .add("active");
 
 
   document
     .querySelectorAll(".nav-btn")
-    .forEach(button => {
+    .forEach(
+      button => {
 
-      button.classList.toggle(
-        "active",
-        button.dataset.page === page
-      );
+        button.classList.toggle(
 
-    });
+          "active",
+
+          button.dataset.page ===
+          page
+
+        );
+
+      }
+    );
 
 
   const titles = {
 
-    dashboard: "System Dashboard",
+    dashboard:
+      "System Dashboard",
 
-    zones: "3-Zone Monitor",
+    zones:
+      "3-Zone Monitor",
 
-    sensors: "Gas Sensors",
+    sensors:
+      "Gas Sensors",
 
-    analytics: "Analytics",
+    analytics:
+      "Analytics",
 
-    control: "System Controls",
+    control:
+      "System Controls",
 
-    history: "System History",
+    history:
+      "System History",
 
-    settings: "System Settings",
+    settings:
+      "System Settings",
 
-    diagnostics: "Diagnostics",
+    diagnostics:
+      "Diagnostics",
 
-    firmware: "Firmware Management"
+    firmware:
+      "Firmware Management"
 
   };
 
 
-  $("pageTitle").textContent =
-    titles[page] || "SILO GUARD";
+  safeText(
+    "pageTitle",
+    titles[page] ||
+    "SILO GUARD"
+  );
 
 }
 
@@ -362,14 +652,12 @@ function openPage(page) {
 
 function startDatabaseListeners() {
 
+  listen(
+    "siloSystem/status",
+    value => {
 
-  // STATUS
-
-  onValue(
-    ref(db, "siloSystem/status"),
-    snapshot => {
-
-      state.status = snapshot.val() || {};
+      state.status =
+        value || {};
 
       renderStatus();
 
@@ -381,25 +669,16 @@ function startDatabaseListeners() {
 
       renderFirmware();
 
-    },
-    error => {
-
-      console.error("Status:", error);
-
-      toast("Cannot read status", "error");
-
     }
   );
 
 
-  // SENSORS
-
-  onValue(
-    ref(db, "siloSystem/sensors"),
-    snapshot => {
+  listen(
+    "siloSystem/sensors",
+    value => {
 
       state.sensors =
-        snapshot.val() || {};
+        value || {};
 
       renderSensors();
 
@@ -409,14 +688,12 @@ function startDatabaseListeners() {
   );
 
 
-  // ZONES
-
-  onValue(
-    ref(db, "siloSystem/zones"),
-    snapshot => {
+  listen(
+    "siloSystem/zones",
+    value => {
 
       state.zones =
-        snapshot.val() || {};
+        value || {};
 
       renderZones();
 
@@ -424,14 +701,12 @@ function startDatabaseListeners() {
   );
 
 
-  // CONTROL
-
-  onValue(
-    ref(db, "siloSystem/control"),
-    snapshot => {
+  listen(
+    "siloSystem/control",
+    value => {
 
       state.control =
-        snapshot.val() || {};
+        value || {};
 
       renderControls();
 
@@ -441,14 +716,12 @@ function startDatabaseListeners() {
   );
 
 
-  // SETTINGS
-
-  onValue(
-    ref(db, "siloSystem/settings"),
-    snapshot => {
+  listen(
+    "siloSystem/settings",
+    value => {
 
       state.settings =
-        snapshot.val() || {};
+        value || {};
 
       renderSettings();
 
@@ -462,14 +735,12 @@ function startDatabaseListeners() {
   );
 
 
-  // DIAGNOSTICS
-
-  onValue(
-    ref(db, "siloSystem/diagnostics"),
-    snapshot => {
+  listen(
+    "siloSystem/diagnostics",
+    value => {
 
       state.diagnostics =
-        snapshot.val() || {};
+        value || {};
 
       renderDiagnostics();
 
@@ -477,14 +748,12 @@ function startDatabaseListeners() {
   );
 
 
-  // HISTORY
-
-  onValue(
-    ref(db, "siloSystem/history"),
-    snapshot => {
+  listen(
+    "siloSystem/history",
+    value => {
 
       state.history =
-        snapshot.val() || {};
+        value || {};
 
       renderHistory();
 
@@ -494,19 +763,85 @@ function startDatabaseListeners() {
   );
 
 
-  // FIRMWARE
-
-  onValue(
-    ref(db, "siloSystem/firmware"),
-    snapshot => {
+  listen(
+    "siloSystem/firmware",
+    value => {
 
       state.firmware =
-        snapshot.val() || {};
+        value || {};
 
       renderFirmware();
 
     }
   );
+
+}
+
+
+function listen(
+  path,
+  callback
+) {
+
+  onValue(
+
+    ref(db, path),
+
+    snapshot => {
+
+      hideDatabaseError();
+
+      callback(
+        snapshot.val()
+      );
+
+    },
+
+    error => {
+
+      console.error(
+        path,
+        error
+      );
+
+
+      showDatabaseError(
+        `${path}: ${firebaseError(error)}`
+      );
+
+    }
+
+  );
+
+}
+
+
+// ============================================================
+// DATABASE ERROR UI
+// ============================================================
+
+function showDatabaseError(
+  message
+) {
+
+  $("databaseError")
+    ?.classList
+    .remove("hidden");
+
+
+  safeText(
+    "databaseErrorText",
+    message
+  );
+
+}
+
+
+function hideDatabaseError() {
+
+  $("databaseError")
+    ?.classList
+    .add("hidden");
 
 }
 
@@ -517,13 +852,16 @@ function startDatabaseListeners() {
 
 function renderStatus() {
 
-  const s = state.status;
+  const s =
+    state.status;
+
 
   const dangerThreshold =
     num(
       state.settings.gasThreshold,
       2000
     );
+
 
   const warningThreshold =
     num(
@@ -539,28 +877,38 @@ function renderStatus() {
     );
 
 
-  $("maxGas").textContent =
-    Math.round(maxGas);
+  safeText(
+    "maxGas",
+    Math.round(maxGas)
+  );
 
 
-  $("averageGas").textContent =
+  safeText(
+    "averageGas",
     Math.round(
       num(
         s.averageGasReading,
         0
       )
-    );
+    )
+  );
 
 
-  $("thresholdText").textContent =
-    dangerThreshold;
+  safeText(
+    "thresholdText",
+    dangerThreshold
+  );
 
 
-  $("gasProgress").style.width =
-    Math.min(
-      100,
-      maxGas / 4095 * 100
-    ) + "%";
+  if ($("gasProgress")) {
+
+    $("gasProgress").style.width =
+      Math.min(
+        100,
+        maxGas / 4095 * 100
+      ) + "%";
+
+  }
 
 
   const battery =
@@ -570,175 +918,263 @@ function renderStatus() {
     );
 
 
-  $("batteryVoltage").textContent =
+  safeText(
+    "batteryVoltage",
     num(
       s.batteryVoltage,
       0
-    ).toFixed(2) + " V";
+    ).toFixed(2) +
+    " V"
+  );
 
 
-  $("batteryPercentage").textContent =
-    Math.round(battery) + "%";
+  safeText(
+    "batteryPercentage",
+    Math.round(battery) +
+    "%"
+  );
 
 
-  $("batteryProgress").style.width =
-    Math.max(
-      0,
-      Math.min(
-        100,
-        battery
-      )
-    ) + "%";
+  if ($("batteryProgress")) {
+
+    $("batteryProgress").style.width =
+      Math.max(
+        0,
+        Math.min(
+          100,
+          battery
+        )
+      ) + "%";
+
+  }
 
 
-  $("internalTemp").textContent =
+  safeText(
+    "internalTemp",
     num(
       s.temperatureInternal,
       0
-    ).toFixed(1) + "°C";
+    ).toFixed(1) +
+    "°C"
+  );
 
 
-  $("internalHumidity").textContent =
+  safeText(
+    "internalHumidity",
     Math.round(
       num(
         s.humidityInternal,
         0
       )
-    ) + "%";
+    ) +
+    "%"
+  );
 
 
-  $("externalTemp").textContent =
+  safeText(
+    "externalTemp",
     num(
       s.temperatureExternal,
       0
-    ).toFixed(1) + "°C";
+    ).toFixed(1) +
+    "°C"
+  );
 
 
-  $("externalHumidity").textContent =
+  safeText(
+    "externalHumidity",
     Math.round(
       num(
         s.humidityExternal,
         0
       )
-    ) + "%";
+    ) +
+    "%"
+  );
 
 
-  $("fanStatus").textContent =
-    s.fan ? "ACTIVE" : "STANDBY";
+  safeText(
+    "fanStatus",
+    s.fan
+      ? "ACTIVE"
+      : "STANDBY"
+  );
 
 
-  $("activeReason").textContent =
+  safeText(
+    "activeReason",
     s.activeFanReason ||
-    "STANDBY";
+    "STANDBY"
+  );
 
 
-  $("fillStatus").textContent =
+  safeText(
+    "fillStatus",
     s.fillStatus ||
-    "0% (EMPTY)";
+    "0% (EMPTY)"
+  );
 
 
-  $("activeZone").textContent =
+  const zone =
     num(
       s.activeRotZone,
       -1
-    ) < 0
+    );
+
+
+  safeText(
+    "activeZone",
+    zone < 0
       ? "None"
-      : "Zone " + s.activeRotZone;
+      : `Zone ${zone}`
+  );
 
 
-  $("rotAngle").textContent =
+  safeText(
+    "rotAngle",
     num(
       s.preciseRotAngle,
       0
-    ).toFixed(1) + "°";
+    ).toFixed(1) +
+    "°"
+  );
 
 
-  $("vectorMagnitude").textContent =
+  safeText(
+    "vectorMagnitude",
     num(
       s.vectorMagnitude,
       0
-    ).toFixed(0);
+    ).toFixed(0)
+  );
 
 
-  $("ipAddress").textContent =
-    s.ipAddress || "--";
+  safeText(
+    "deviceIdText",
+    s.deviceId ||
+    DEVICE_ID
+  );
 
 
-  $("wifiRSSI").textContent =
+  safeText(
+    "ipAddress",
+    s.ipAddress ||
+    "--"
+  );
+
+
+  safeText(
+    "wifiRSSI",
     s.wifiRSSI !== undefined
-      ? s.wifiRSSI + " dBm"
-      : "--";
+      ? `${s.wifiRSSI} dBm`
+      : "--"
+  );
 
 
-  $("firmwareVersion").textContent =
-    s.firmwareVersion || "--";
+  safeText(
+    "firmwareVersion",
+    s.firmwareVersion ||
+    "--"
+  );
 
 
-  $("hardwareVersion").textContent =
-    s.hardwareVersion || "--";
+  safeText(
+    "hardwareVersion",
+    s.hardwareVersion ||
+    "--"
+  );
 
 
   const gasDanger =
-    Boolean(s.gasDetected);
+    Boolean(
+      s.gasDetected
+    );
 
 
   const warning =
-    maxGas >= warningThreshold;
+    maxGas >=
+    warningThreshold;
 
 
   $("dangerAlert")
-    .classList
+    ?.classList
     .toggle(
       "hidden",
-      !gasDanger && !warning
+      !gasDanger &&
+      !warning
     );
 
 
-  $("dangerMessage").textContent =
+  safeText(
+
+    "dangerMessage",
+
     gasDanger
 
-      ? `Gas danger detected. Maximum ADC: ${Math.round(maxGas)}. Local fan safety is active.`
+      ? `Gas danger detected. Maximum ADC: ${Math.round(maxGas)}.`
 
       : warning
 
-        ? `Gas warning detected. Current ADC: ${Math.round(maxGas)}.`
+        ? `Gas warning detected. Maximum ADC: ${Math.round(maxGas)}.`
 
-        : "Gas level normal.";
+        : "Gas level normal."
+
+  );
 
 
-  $("systemBadge").className =
-    "badge " +
-    (
+  const badge =
+    $("systemBadge");
+
+
+  if (badge) {
+
+    badge.className =
+      "badge " +
+      (
+        gasDanger
+          ? "danger"
+          : warning
+            ? "warning"
+            : "safe"
+      );
+
+
+    badge.textContent =
       gasDanger
-        ? "danger"
+        ? "GAS DANGER"
         : warning
-          ? "warning"
-          : "safe"
-    );
+          ? "GAS WARNING"
+          : "SYSTEM SECURE";
+
+  }
 
 
-  $("systemBadge").textContent =
-    gasDanger
-      ? "GAS DANGER"
-      : warning
-        ? "GAS WARNING"
-        : "SYSTEM SECURE";
+  safeText(
+    "gasState",
 
-
-  $("gasState").textContent =
     gasDanger
       ? "DANGER"
       : warning
         ? "WARNING"
-        : "NORMAL";
+        : "NORMAL"
+
+  );
 
 
-  $("gasState").className =
-    gasDanger
-      ? "danger-text"
-      : warning
-        ? "warning-text"
-        : "safe-text";
+  const gasState =
+    $("gasState");
+
+
+  if (gasState) {
+
+    gasState.className =
+      gasDanger
+        ? "danger-text"
+        : warning
+          ? "warning-text"
+          : "safe-text";
+
+  }
 
 }
 
@@ -749,10 +1185,14 @@ function renderStatus() {
 
 function renderCuring() {
 
-  const s = state.status;
+  const s =
+    state.status;
+
 
   const active =
-    Boolean(s.curingActive);
+    Boolean(
+      s.curingActive
+    );
 
 
   const progress =
@@ -768,29 +1208,48 @@ function renderCuring() {
     );
 
 
-  $("curingStatus").textContent =
+  safeText(
+    "curingStatus",
     s.curingStatus ||
-    "HARVEST DATE NOT SET";
+    "HARVEST DATE NOT SET"
+  );
 
 
-  $("curingDay").textContent =
+  safeText(
+
+    "curingDay",
+
     active
 
-      ? `${num(s.curingDay, 0)} / 14 days`
+      ? `${num(s.curingDay,0)} / 14 days`
 
       : s.harvestTimestamp
         ? "14 / 14 days"
-        : "0 / 14 days";
+        : "0 / 14 days"
+
+  );
 
 
-  $("curingProgress").style.width =
-    progress + "%";
+  if ($("curingProgress")) {
+
+    $("curingProgress")
+      .style.width =
+      progress + "%";
+
+  }
 
 
-  $("harvestDate").textContent =
+  safeText(
+
+    "harvestDate",
+
     s.harvestTimestamp
-      ? formatTime(s.harvestTimestamp)
-      : "Not set";
+      ? formatTime(
+          s.harvestTimestamp
+        )
+      : "Not set"
+
+  );
 
 }
 
@@ -810,12 +1269,13 @@ function updateConnection() {
 
   const online =
     heartbeat > 0 &&
-    Date.now() - heartbeat <
+    Date.now() -
+      heartbeat <
       OFFLINE_TIMEOUT;
 
 
   $("connectionDot")
-    .classList
+    ?.classList
     .toggle(
       "online",
       online
@@ -823,31 +1283,42 @@ function updateConnection() {
 
 
   $("connectionDot")
-    .classList
+    ?.classList
     .toggle(
       "offline",
       !online
     );
 
 
-  $("connectionText").textContent =
+  safeText(
+    "connectionText",
     online
       ? "Device Online"
-      : "Device Offline";
+      : "Device Offline"
+  );
 
 
-  $("lastSeen").textContent =
+  safeText(
+
+    "lastSeen",
+
     online
-      ? "Heartbeat " + formatClock(heartbeat)
+
+      ? `Heartbeat ${formatClock(heartbeat)}`
+
       : heartbeat
-        ? "Last seen " + formatTime(heartbeat)
-        : "Waiting for ESP32";
+        ? `Last seen ${formatTime(heartbeat)}`
+        : "Waiting for ESP32"
+
+  );
 
 
-  $("onlineCard").textContent =
+  safeText(
+    "onlineCard",
     online
       ? "ONLINE"
-      : "OFFLINE";
+      : "OFFLINE"
+  );
 
 }
 
@@ -859,16 +1330,19 @@ setInterval(
 
 
 // ============================================================
-// SENSOR STATUS
+// SENSOR
 // ============================================================
 
-function sensorLevel(value) {
+function sensorLevel(
+  value
+) {
 
   const danger =
     num(
       state.settings.gasThreshold,
       2000
     );
+
 
   const warning =
     num(
@@ -877,7 +1351,9 @@ function sensorLevel(value) {
     );
 
 
-  if (value >= danger) {
+  if (
+    value >= danger
+  ) {
 
     return {
       className: "danger",
@@ -887,7 +1363,9 @@ function sensorLevel(value) {
   }
 
 
-  if (value >= warning) {
+  if (
+    value >= warning
+  ) {
 
     return {
       className: "warning",
@@ -905,11 +1383,10 @@ function sensorLevel(value) {
 }
 
 
-// ============================================================
-// SENSOR CARD
-// ============================================================
-
-function sensorCard(index, value) {
+function sensorCard(
+  index,
+  value
+) {
 
   const level =
     sensorLevel(value);
@@ -927,52 +1404,40 @@ function sensorCard(index, value) {
 
   return `
 
-  <div class="sensor-card ${level.className}">
+    <div class="sensor-card ${level.className}">
 
-    <div class="sensor-head">
+      <div class="sensor-head">
 
-      <strong>
-        MQ-135 ${index}
-      </strong>
+        <strong>
+          MQ-135 ${index}
+        </strong>
 
-      <span>
-        ${level.text}
-      </span>
+        <span>
+          ${level.text}
+        </span>
 
-    </div>
+      </div>
 
+      <div class="sensor-number">
+        ${Math.round(value)}
+      </div>
 
-    <div class="sensor-number">
+      <div class="sensor-footer">
 
-      ${Math.round(value)}
+        <small>ADC</small>
 
-    </div>
+        <small class="${healthy ? "ok" : "bad"}">
+          ${healthy ? "● HEALTHY" : "● FAULT"}
+        </small>
 
-
-    <div class="sensor-footer">
-
-      <small>
-        ADC
-      </small>
-
-      <small
-        class="${healthy ? "ok" : "bad"}"
-      >
-        ${healthy ? "● HEALTHY" : "● FAULT"}
-      </small>
+      </div>
 
     </div>
-
-  </div>
 
   `;
 
 }
 
-
-// ============================================================
-// SENSORS
-// ============================================================
 
 function renderSensors() {
 
@@ -985,25 +1450,33 @@ function renderSensors() {
     i++
   ) {
 
-    html += sensorCard(
-      i,
-      num(
-        state.sensors[
-          "gas" + i
-        ],
-        0
-      )
-    );
+    html +=
+      sensorCard(
+
+        i,
+
+        num(
+          state.sensors[
+            "gas" + i
+          ],
+          0
+        )
+
+      );
 
   }
 
 
-  $("allSensors").innerHTML =
-    html;
+  safeHTML(
+    "allSensors",
+    html
+  );
 
 
-  $("sensorPreview").innerHTML =
-    html;
+  safeHTML(
+    "sensorPreview",
+    html
+  );
 
 }
 
@@ -1012,7 +1485,9 @@ function renderSensors() {
 // ZONE
 // ============================================================
 
-function getZone(zone) {
+function getZone(
+  zone
+) {
 
   const ids =
     ZONES[zone];
@@ -1050,7 +1525,8 @@ function getZone(zone) {
       num(
         dbZone.average,
         values.reduce(
-          (a,b) => a + b,
+          (a,b) =>
+            a + b,
           0
         ) / 3
       )
@@ -1060,11 +1536,9 @@ function getZone(zone) {
 }
 
 
-// ============================================================
-// ZONE CARD
-// ============================================================
-
-function zoneCard(zone) {
+function zoneCard(
+  zone
+) {
 
   const data =
     getZone(zone);
@@ -1104,80 +1578,69 @@ function zoneCard(zone) {
 
   return `
 
-  <div class="zone-card
-    ${danger ? "danger" : warning ? "warning" : ""}">
+    <div class="zone-card
+      ${danger ? "danger" : warning ? "warning" : ""}">
 
-    <div class="zone-head">
+      <div class="zone-head">
 
-      <strong>
-        Zone ${zone}
-      </strong>
+        <strong>
+          Zone ${zone}
+        </strong>
 
-      <span>
-        ${status}
-      </span>
+        <span>
+          ${status}
+        </span>
 
-    </div>
+      </div>
 
+      <div class="zone-number">
+        ${Math.round(data.peak)}
+      </div>
 
-    <div class="zone-number">
+      <small>
+        Maximum gas ADC
+      </small>
 
-      ${Math.round(data.peak)}
+      <div class="zone-sensors">
 
-    </div>
+        ${ZONES[zone].map(
+          id => `
 
+            <div>
 
-    <small>
-      Maximum gas ADC
-    </small>
+              <small>
+                MQ-${id}
+              </small>
 
+              <strong>
+                ${Math.round(
+                  num(
+                    state.sensors[
+                      "gas" + id
+                    ],
+                    0
+                  )
+                )}
+              </strong>
 
-    <div class="zone-sensors">
+            </div>
 
-      ${ZONES[zone].map(
-        id => `
+          `
+        ).join("")}
 
-        <div>
+      </div>
 
-          <small>
-            MQ-${id}
-          </small>
-
-          <strong>
-            ${Math.round(
-              num(
-                state.sensors[
-                  "gas" + id
-                ],
-                0
-              )
-            )}
-          </strong>
-
-        </div>
-
-      `).join("")}
-
-    </div>
-
-
-    <div class="zone-average">
-
-      Average:
-      ${Math.round(data.average)}
+      <div class="zone-average">
+        Average:
+        ${Math.round(data.average)}
+      </div>
 
     </div>
-
-  </div>
 
   `;
 
 }
 
-
-// ============================================================
-// ZONES
-// ============================================================
 
 function renderZones() {
 
@@ -1187,18 +1650,23 @@ function renderZones() {
   [1,2,3].forEach(
     zone => {
 
-      html += zoneCard(zone);
+      html +=
+        zoneCard(zone);
 
     }
   );
 
 
-  $("zoneCards").innerHTML =
-    html;
+  safeHTML(
+    "zoneCards",
+    html
+  );
 
 
-  $("zonePreview").innerHTML =
-    html;
+  safeHTML(
+    "zonePreview",
+    html
+  );
 
 
   updateZoneChart();
@@ -1220,51 +1688,70 @@ function renderControls() {
     state.status;
 
 
-  const fan =
+  const fanCommand =
     Boolean(c.fan);
 
 
-  const buzzer =
+  const buzzerCommand =
     Boolean(c.buzzer);
 
 
   const remote =
-    String(c.mode || "AUTO")
-      .toUpperCase() ===
+    String(
+      c.mode || "AUTO"
+    ).toUpperCase() ===
     "REMOTE";
 
 
-  $("fanToggle").textContent =
-    fan
+  safeText(
+    "fanToggle",
+    fanCommand
       ? "FAN ON"
-      : "FAN OFF";
+      : "FAN OFF"
+  );
 
 
-  $("buzzerToggle").textContent =
-    buzzer
+  safeText(
+    "buzzerToggle",
+    buzzerCommand
       ? "BUZZER ON"
-      : "BUZZER OFF";
+      : "BUZZER OFF"
+  );
 
 
-  $("actualFanState").textContent =
+  safeText(
+    "actualFanState",
     s.fan
       ? "ON"
-      : "OFF";
+      : "OFF"
+  );
 
 
-  $("activeFanReasonControl").textContent =
+  safeText(
+    "buzzerStateText",
+    s.buzzer
+      ? "ON"
+      : "OFF"
+  );
+
+
+  safeText(
+    "activeFanReasonControl",
     s.activeFanReason ||
-    "STANDBY";
+    "STANDBY"
+  );
 
 
-  $("controlModeText").textContent =
+  safeText(
+    "controlModeText",
     remote
       ? "REMOTE"
-      : "AUTO";
+      : "AUTO"
+  );
 
 
   $("autoMode")
-    .classList
+    ?.classList
     .toggle(
       "active",
       !remote
@@ -1272,7 +1759,7 @@ function renderControls() {
 
 
   $("remoteMode")
-    .classList
+    ?.classList
     .toggle(
       "active",
       remote
@@ -1280,7 +1767,7 @@ function renderControls() {
 
 
   $("fanIndicator")
-    .classList
+    ?.classList
     .toggle(
       "on",
       Boolean(s.fan)
@@ -1288,34 +1775,40 @@ function renderControls() {
 
 
   $("buzzerIndicator")
-    .classList
+    ?.classList
     .toggle(
       "on",
       Boolean(s.buzzer)
     );
 
 
-  $("emergencyState").textContent =
+  safeText(
+    "emergencyState",
     c.emergency
       ? "ACTIVE"
-      : "CLEAR";
+      : "CLEAR"
+  );
 
 }
 
 
 // ============================================================
-// FIREBASE CONTROL
+// WRITE CONTROL
 // ============================================================
 
-async function writeControl(values) {
+async function writeControl(
+  values
+) {
 
   try {
 
     await update(
+
       ref(
         db,
         "siloSystem/control"
       ),
+
       {
 
         ...values,
@@ -1324,19 +1817,25 @@ async function writeControl(values) {
           Date.now()
 
       }
+
     );
 
 
-    toast("Command sent");
+    toast(
+      "Command sent"
+    );
 
   }
 
   catch (error) {
 
-    console.error(error);
+    console.error(
+      error
+    );
+
 
     toast(
-      error.message,
+      firebaseError(error),
       "error"
     );
 
@@ -1349,144 +1848,140 @@ async function writeControl(values) {
 // FAN
 // ============================================================
 
-$("fanToggle").onclick =
-async () => {
+$("fanToggle")
+  ?.addEventListener(
+    "click",
+    async () => {
 
-  await writeControl({
+      await writeControl({
 
-    fan:
-      !Boolean(
-        state.control.fan
-      ),
+        fan:
+          !Boolean(
+            state.control.fan
+          ),
 
-    mode:
-      "REMOTE"
+        mode:
+          "REMOTE"
 
-  });
+      });
 
-};
+    }
+  );
 
 
 // ============================================================
 // BUZZER
 // ============================================================
 
-$("buzzerToggle").onclick =
-async () => {
+$("buzzerToggle")
+  ?.addEventListener(
+    "click",
+    async () => {
 
-  await writeControl({
+      await writeControl({
 
-    buzzer:
-      !Boolean(
-        state.control.buzzer
-      ),
+        buzzer:
+          !Boolean(
+            state.control.buzzer
+          ),
 
-    mode:
-      "REMOTE"
+        mode:
+          "REMOTE"
 
-  });
+      });
 
-};
-
-
-// ============================================================
-// AUTO
-// ============================================================
-
-$("autoMode").onclick =
-async () => {
-
-  await writeControl({
-
-    mode:
-      "AUTO"
-
-  });
-
-};
+    }
+  );
 
 
 // ============================================================
-// REMOTE
+// MODES
 // ============================================================
 
-$("remoteMode").onclick =
-async () => {
+$("autoMode")
+  ?.addEventListener(
+    "click",
+    () => {
 
-  await writeControl({
+      writeControl({
+        mode: "AUTO"
+      });
 
-    mode:
-      "REMOTE"
+    }
+  );
 
-  });
 
-};
+$("remoteMode")
+  ?.addEventListener(
+    "click",
+    () => {
+
+      writeControl({
+        mode: "REMOTE"
+      });
+
+    }
+  );
 
 
 // ============================================================
 // EMERGENCY
 // ============================================================
 
-$("emergencyBtn").onclick =
-async () => {
+$("emergencyBtn")
+  ?.addEventListener(
+    "click",
+    async () => {
 
-  if (
-    !confirm(
-      "Activate emergency?"
-    )
-  ) return;
-
-
-  await writeControl({
-
-    emergency:
-      true,
-
-    fan:
-      true,
-
-    buzzer:
-      true,
-
-    mode:
-      "REMOTE"
-
-  });
-
-};
+      if (
+        !confirm(
+          "Activate emergency ventilation?"
+        )
+      ) return;
 
 
-// ============================================================
-// RESET EMERGENCY
-// ============================================================
+      await writeControl({
 
-$("resetEmergency").onclick =
-async () => {
+        emergency: true,
 
-  if (
-    !confirm(
-      "Reset emergency?"
-    )
-  ) return;
+        fan: true,
+
+        buzzer: true,
+
+        mode: "REMOTE"
+
+      });
+
+    }
+  );
 
 
-  await writeControl({
+$("resetEmergency")
+  ?.addEventListener(
+    "click",
+    async () => {
 
-    emergency:
-      false,
+      if (
+        !confirm(
+          "Reset emergency?"
+        )
+      ) return;
 
-    fan:
-      false,
 
-    buzzer:
-      false,
+      await writeControl({
 
-    mode:
-      "AUTO"
+        emergency: false,
 
-  });
+        fan: false,
 
-};
+        buzzer: false,
+
+        mode: "AUTO"
+
+      });
+
+    }
+  );
 
 
 // ============================================================
@@ -1495,146 +1990,156 @@ async () => {
 
 function renderSettings() {
 
-  $("gasThresholdInput").value =
-    num(
-      state.settings.gasThreshold,
-      2000
-    );
+  if ($("gasThresholdInput")) {
+
+    $("gasThresholdInput").value =
+      num(
+        state.settings.gasThreshold,
+        2000
+      );
+
+  }
 
 
-  $("warningThresholdInput").value =
-    num(
-      state.settings.warningThreshold,
-      1500
-    );
+  if ($("warningThresholdInput")) {
+
+    $("warningThresholdInput").value =
+      num(
+        state.settings.warningThreshold,
+        1500
+      );
+
+  }
 
 }
 
 
-// ============================================================
-// SAVE DANGER
-// ============================================================
+$("saveThreshold")
+  ?.addEventListener(
+    "click",
+    async () => {
 
-$("saveThreshold").onclick =
-async () => {
-
-  const value =
-    num(
-      $("gasThresholdInput").value,
-      -1
-    );
-
-
-  if (
-    value < 0 ||
-    value > 4095
-  ) {
-
-    toast(
-      "Invalid threshold",
-      "error"
-    );
-
-    return;
-
-  }
+      const value =
+        num(
+          $("gasThresholdInput")
+            .value,
+          -1
+        );
 
 
-  try {
+      if (
+        value < 0 ||
+        value > 4095
+      ) {
 
-    await update(
-      ref(
-        db,
-        "siloSystem/settings"
-      ),
-      {
+        toast(
+          "Invalid threshold",
+          "error"
+        );
 
-        gasThreshold:
-          value
+        return;
 
       }
-    );
 
 
-    toast(
-      "Danger threshold saved"
-    );
+      try {
 
-  }
+        await update(
 
-  catch(error) {
+          ref(
+            db,
+            "siloSystem/settings"
+          ),
 
-    toast(
-      error.message,
-      "error"
-    );
+          {
+            gasThreshold:
+              value
+          }
 
-  }
-
-};
-
-
-// ============================================================
-// SAVE WARNING
-// ============================================================
-
-$("saveWarning").onclick =
-async () => {
-
-  const value =
-    num(
-      $("warningThresholdInput").value,
-      -1
-    );
+        );
 
 
-  if (
-    value < 0 ||
-    value > 4095
-  ) {
-
-    toast(
-      "Invalid threshold",
-      "error"
-    );
-
-    return;
-
-  }
-
-
-  try {
-
-    await update(
-      ref(
-        db,
-        "siloSystem/settings"
-      ),
-      {
-
-        warningThreshold:
-          value
+        toast(
+          "Danger threshold saved"
+        );
 
       }
-    );
+
+      catch(error) {
+
+        toast(
+          firebaseError(error),
+          "error"
+        );
+
+      }
+
+    }
+  );
 
 
-    toast(
-      "Warning threshold saved"
-    );
+$("saveWarning")
+  ?.addEventListener(
+    "click",
+    async () => {
 
-  }
+      const value =
+        num(
+          $("warningThresholdInput")
+            .value,
+          -1
+        );
 
-  catch(error) {
 
-    toast(
-      error.message,
-      "error"
-    );
+      if (
+        value < 0 ||
+        value > 4095
+      ) {
 
-  }
+        toast(
+          "Invalid threshold",
+          "error"
+        );
 
-};
+        return;
+
+      }
+
+
+      try {
+
+        await update(
+
+          ref(
+            db,
+            "siloSystem/settings"
+          ),
+
+          {
+            warningThreshold:
+              value
+          }
+
+        );
+
+
+        toast(
+          "Warning threshold saved"
+        );
+
+      }
+
+      catch(error) {
+
+        toast(
+          firebaseError(error),
+          "error"
+        );
+
+      }
+
+    }
+  );
 
 
 // ============================================================
@@ -1647,40 +2152,52 @@ function renderDiagnostics() {
     state.diagnostics;
 
 
-  $("diagFirebase").textContent =
+  safeText(
+    "diagFirebase",
     d.firebaseHealthy === false
       ? "FAULT"
-      : "OK";
+      : "OK"
+  );
 
 
-  $("diagWiFi").textContent =
+  safeText(
+    "diagWiFi",
     d.wifiConnected === false
       ? "FAULT"
-      : "OK";
+      : "OK"
+  );
 
 
-  $("diagDhtInt").textContent =
+  safeText(
+    "diagDhtInt",
     d.dhtInternalHealthy === false
       ? "FAULT"
-      : "OK";
+      : "OK"
+  );
 
 
-  $("diagDhtExt").textContent =
+  safeText(
+    "diagDhtExt",
     d.dhtExternalHealthy === false
       ? "FAULT"
-      : "OK";
+      : "OK"
+  );
 
 
-  $("diagFan").textContent =
+  safeText(
+    "diagFan",
     d.fanDiagnosticFault
       ? "FAULT"
-      : "COMMAND OK";
+      : "COMMAND OK"
+  );
 
 
-  $("diagHeartbeat").textContent =
+  safeText(
+    "diagHeartbeat",
     formatTime(
       state.status.lastHeartbeat
-    );
+    )
+  );
 
 
   let html = "";
@@ -1693,7 +2210,9 @@ function renderDiagnostics() {
   ) {
 
     const x =
-      d["mq" + i] || {};
+      d[
+        "mq" + i
+      ] || {};
 
 
     html += `
@@ -1725,8 +2244,10 @@ function renderDiagnostics() {
   }
 
 
-  $("mqDiagnostics").innerHTML =
-    html;
+  safeHTML(
+    "mqDiagnostics",
+    html
+  );
 
 }
 
@@ -1741,17 +2262,17 @@ function historyRows() {
     state.history || {}
   )
   .sort(
-    ([a],[b]) =>
-      Number(b) - Number(a)
+    ([a], [b]) =>
+      Number(b) -
+      Number(a)
   )
-  .slice(0,500);
+  .slice(
+    0,
+    MAX_HISTORY_ROWS
+  );
 
 }
 
-
-// ============================================================
-// RENDER HISTORY
-// ============================================================
 
 function renderHistory() {
 
@@ -1773,13 +2294,15 @@ function renderHistory() {
     );
 
 
-  $("historyCount").textContent =
+  safeText(
+    "historyCount",
     `${Object.keys(
       state.history || {}
-    ).length} records`;
+    ).length} records`
+  );
 
 
-  $("historyTable").innerHTML =
+  const html =
     rows.map(
       ([timestamp, x]) => {
 
@@ -1812,8 +2335,7 @@ function renderHistory() {
                   x.activeZone,
                   -1
                 ) > 0
-                  ? "Zone " +
-                    x.activeZone
+                  ? `Zone ${x.activeZone}`
                   : "None"
               }
             </td>
@@ -1873,66 +2395,175 @@ function renderHistory() {
         `;
 
       }
-    ).join("")
+    )
+    .join("");
 
-    ||
+
+  safeHTML(
+
+    "historyTable",
+
+    html ||
 
     `<tr>
       <td colspan="9">
         No history available
       </td>
-    </tr>`;
+    </tr>`
+
+  );
 
 }
 
 
+$("clearHistory")
+  ?.addEventListener(
+    "click",
+    async () => {
+
+      if (
+        !confirm(
+          "Delete all history?"
+        )
+      ) return;
+
+
+      try {
+
+        await remove(
+          ref(
+            db,
+            "siloSystem/history"
+          )
+        );
+
+
+        toast(
+          "History deleted"
+        );
+
+      }
+
+      catch(error) {
+
+        toast(
+          firebaseError(error),
+          "error"
+        );
+
+      }
+
+    }
+  );
+
+
 // ============================================================
-// CLEAR HISTORY
+// CHARTS
 // ============================================================
 
-$("clearHistory").onclick =
-async () => {
+function initCharts() {
 
   if (
-    !confirm(
-      "Delete all history?"
-    )
-  ) return;
+    typeof Chart ===
+    "undefined"
+  ) {
 
-
-  try {
-
-    await remove(
-      ref(
-        db,
-        "siloSystem/history"
-      )
+    console.error(
+      "Chart.js not loaded."
     );
 
-
-    toast(
-      "History deleted"
-    );
+    return;
 
   }
 
-  catch(error) {
 
-    toast(
-      error.message,
-      "error"
+  charts.live =
+    makeChart(
+
+      "liveGasChart",
+
+      "line",
+
+      ["Maximum Gas", "Average Gas"],
+
+      []
+
     );
 
-  }
 
-};
+  charts.zone =
+    makeChart(
+
+      "zoneChart",
+
+      "bar",
+
+      ["Zone 1", "Zone 2", "Zone 3"],
+
+      ["Peak Gas"]
+
+    );
 
 
-// ============================================================
-// CHART
-// ============================================================
+  charts.gas =
+    makeChart(
 
-function createChart(
+      "gasHistoryChart",
+
+      "line",
+
+      ["Maximum Gas"],
+
+      []
+
+    );
+
+
+  charts.temperature =
+    makeChart(
+
+      "temperatureChart",
+
+      "line",
+
+      ["Temperature"],
+
+      []
+
+    );
+
+
+  charts.humidity =
+    makeChart(
+
+      "humidityChart",
+
+      "line",
+
+      ["Humidity"],
+
+      []
+
+    );
+
+
+  charts.battery =
+    makeChart(
+
+      "batteryChart",
+
+      "line",
+
+      ["Battery"],
+
+      []
+
+    );
+
+}
+
+
+function makeChart(
   id,
   type,
   labels,
@@ -1943,7 +2574,22 @@ function createChart(
     $(id);
 
 
-  if (!canvas) return null;
+  if (!canvas) {
+
+    return null;
+
+  }
+
+
+  const dataSets =
+    datasets.map(
+      label => ({
+        label,
+        data: [],
+        tension: .3,
+        pointRadius: 1
+      })
+    );
 
 
   return new Chart(
@@ -1954,9 +2600,12 @@ function createChart(
 
       data: {
 
-        labels,
+        labels: type === "bar"
+          ? labels
+          : [],
 
-        datasets
+        datasets:
+          dataSets
 
       },
 
@@ -1964,9 +2613,23 @@ function createChart(
 
         responsive: true,
 
-        maintainAspectRatio: false,
+        maintainAspectRatio:
+          false,
 
         animation: false,
+
+        interaction: {
+          mode: "index",
+          intersect: false
+        },
+
+        plugins: {
+
+          legend: {
+            display: true
+          }
+
+        },
 
         scales: {
 
@@ -1985,149 +2648,34 @@ function createChart(
 
 
 // ============================================================
-// INIT CHARTS
-// ============================================================
-
-function initCharts() {
-
-  liveGasChart =
-    createChart(
-      "liveGasChart",
-      "line",
-      [],
-      [
-
-        {
-          label: "Maximum Gas",
-          data: [],
-          tension: 0.3,
-          pointRadius: 1
-        },
-
-        {
-          label: "Average Gas",
-          data: [],
-          tension: 0.3,
-          pointRadius: 1
-        }
-
-      ]
-    );
-
-
-  zoneChart =
-    createChart(
-      "zoneChart",
-      "bar",
-      [
-        "Zone 1",
-        "Zone 2",
-        "Zone 3"
-      ],
-      [
-
-        {
-          label: "Peak Gas",
-          data: [0,0,0]
-        }
-
-      ]
-    );
-
-
-  gasHistoryChart =
-    createChart(
-      "gasHistoryChart",
-      "line",
-      [],
-      [
-
-        {
-          label: "Maximum Gas",
-          data: [],
-          tension: 0.3
-        }
-
-      ]
-    );
-
-
-  temperatureChart =
-    createChart(
-      "temperatureChart",
-      "line",
-      [],
-      [
-
-        {
-          label: "Temperature",
-          data: [],
-          tension: 0.3
-        }
-
-      ]
-    );
-
-
-  humidityChart =
-    createChart(
-      "humidityChart",
-      "line",
-      [],
-      [
-
-        {
-          label: "Humidity",
-          data: [],
-          tension: 0.3
-        }
-
-      ]
-    );
-
-
-  batteryChart =
-    createChart(
-      "batteryChart",
-      "line",
-      [],
-      [
-
-        {
-          label: "Battery",
-          data: [],
-          tension: 0.3
-        }
-
-      ]
-    );
-
-}
-
-
-let lastLiveTimestamp = 0;
-
-
-// ============================================================
 // LIVE CHART
 // ============================================================
 
 function updateLiveChart() {
 
-  if (!liveGasChart) return;
+  const chart =
+    charts.live;
+
+
+  if (!chart) return;
 
 
   const timestamp =
     num(
       state.status.lastUpdate,
-      Date.now()
+      0
     );
 
 
   if (
+    timestamp <= 0 ||
     timestamp ===
     lastLiveTimestamp
-  ) return;
+  ) {
+
+    return;
+
+  }
 
 
   lastLiveTimestamp =
@@ -2135,15 +2683,17 @@ function updateLiveChart() {
 
 
   const labels =
-    liveGasChart.data.labels;
+    chart.data.labels;
 
 
   const max =
-    liveGasChart.data.datasets[0].data;
+    chart.data.datasets[0]
+      .data;
 
 
   const avg =
-    liveGasChart.data.datasets[1].data;
+    chart.data.datasets[1]
+      .data;
 
 
   labels.push(
@@ -2180,7 +2730,7 @@ function updateLiveChart() {
   }
 
 
-  liveGasChart.update("none");
+  chart.update("none");
 
 }
 
@@ -2191,10 +2741,14 @@ function updateLiveChart() {
 
 function updateZoneChart() {
 
-  if (!zoneChart) return;
+  const chart =
+    charts.zone;
 
 
-  zoneChart.data.datasets[0]
+  if (!chart) return;
+
+
+  chart.data.datasets[0]
     .data = [
 
       getZone(1).peak,
@@ -2206,7 +2760,7 @@ function updateZoneChart() {
     ];
 
 
-  zoneChart.update("none");
+  chart.update("none");
 
 }
 
@@ -2230,7 +2784,7 @@ function updateHistoryCharts() {
 
 
   updateChart(
-    gasHistoryChart,
+    charts.gas,
     labels,
     rows.map(
       ([,x]) =>
@@ -2243,7 +2797,7 @@ function updateHistoryCharts() {
 
 
   updateChart(
-    temperatureChart,
+    charts.temperature,
     labels,
     rows.map(
       ([,x]) =>
@@ -2256,7 +2810,7 @@ function updateHistoryCharts() {
 
 
   updateChart(
-    humidityChart,
+    charts.humidity,
     labels,
     rows.map(
       ([,x]) =>
@@ -2269,7 +2823,7 @@ function updateHistoryCharts() {
 
 
   updateChart(
-    batteryChart,
+    charts.battery,
     labels,
     rows.map(
       ([,x]) =>
@@ -2307,46 +2861,49 @@ function updateChart(
 
 
 // ============================================================
-// OTA
+// OTA HELPERS
 // ============================================================
 
-function getFirmwareCommand() {
+function latestFirmware() {
 
-  return state.firmware.command || {};
-
-}
-
-
-function getFirmwareLatest() {
-
-  return state.firmware.latest || {};
+  return state.firmware
+    ?.latest || {};
 
 }
 
 
-function getFirmwareDevice() {
+function firmwareCommand() {
 
-  return state.firmware.device || {};
+  return state.firmware
+    ?.command || {};
+
+}
+
+
+function firmwareDevice() {
+
+  return state.firmware
+    ?.device || {};
 
 }
 
 
 // ============================================================
-// FIRMWARE DISPLAY
+// OTA DISPLAY
 // ============================================================
 
 function renderFirmware() {
 
   const latest =
-    getFirmwareLatest();
+    latestFirmware();
 
 
   const command =
-    getFirmwareCommand();
+    firmwareCommand();
 
 
   const device =
-    getFirmwareDevice();
+    firmwareDevice();
 
 
   const currentVersion =
@@ -2370,56 +2927,78 @@ function renderFirmware() {
     );
 
 
-  $("otaDeviceId").textContent =
+  safeText(
+    "otaDeviceId",
     device.deviceId ||
     state.status.deviceId ||
-    DEVICE_ID;
+    DEVICE_ID
+  );
 
 
-  $("otaCurrentVersion").textContent =
-    currentVersion;
+  safeText(
+    "otaCurrentVersion",
+    currentVersion
+  );
 
 
-  $("otaCurrentBuild").textContent =
-    currentBuild || "--";
+  safeText(
+    "otaCurrentBuild",
+    currentBuild || "--"
+  );
 
 
-  $("otaCurrentHardware").textContent =
+  safeText(
+    "otaCurrentHardware",
     device.hardwareVersion ||
     state.status.hardwareVersion ||
-    "--";
+    "--"
+  );
 
 
-  $("otaState").textContent =
+  safeText(
+    "otaState",
     device.state ||
-    "IDLE";
+    state.status.otaState ||
+    "IDLE"
+  );
 
 
-  $("otaProgressText").textContent =
+  safeText(
+    "otaProgressText",
     num(
-      device.progress,
+      device.progress ??
+      state.status.otaProgress,
       0
-    ) + "%";
+    ) + "%"
+  );
 
 
-  $("otaLatestVersion").textContent =
+  safeText(
+    "otaLatestVersion",
     latest.version ||
-    "--";
+    "--"
+  );
 
 
-  $("otaLatestBuild").textContent =
+  safeText(
+    "otaLatestBuild",
     latest.build ??
-    "--";
+    "--"
+  );
 
 
-  $("otaTarget").textContent =
+  safeText(
+    "otaTarget",
     command.targetDevice ||
-    DEVICE_ID;
+    DEVICE_ID
+  );
 
 
-  $("otaHash").textContent =
+  safeText(
+    "otaHash",
     latest.sha256 ||
-    "--";
+    "--"
+  );
 
 
   const newer =
@@ -2427,65 +3006,100 @@ function renderFirmware() {
     currentBuild;
 
 
-  const gas =
+  const blocked =
     Boolean(
       state.status.gasDetected
-    );
-
-
-  const emergency =
+    ) ||
     Boolean(
       state.control.emergency
     );
 
 
-  const blocked =
-    gas ||
-    emergency;
+  const deploy =
+    $("deployLatest");
 
 
-  $("deployLatest").disabled =
-    !newer ||
-    blocked ||
-    !latest.url;
+  if (deploy) {
+
+    deploy.disabled =
+      !newer ||
+      blocked ||
+      !latest.url;
+
+  }
+
+
+  const badge =
+    $("otaBadge");
+
+
+  const info =
+    $("deployInfo");
 
 
   if (blocked) {
 
-    $("otaBadge").textContent =
-      "OTA BLOCKED";
+    if (badge) {
 
-    $("otaBadge").className =
-      "badge danger";
+      badge.className =
+        "badge danger";
 
-    $("deployInfo").textContent =
-      "OTA is blocked while gas danger or emergency is active.";
+      badge.textContent =
+        "OTA BLOCKED";
+
+    }
+
+
+    if (info) {
+
+      info.textContent =
+        "OTA is blocked while gas danger or emergency is active.";
+
+    }
 
   }
 
   else if (newer) {
 
-    $("otaBadge").textContent =
-      "UPDATE AVAILABLE";
+    if (badge) {
 
-    $("otaBadge").className =
-      "badge warning";
+      badge.className =
+        "badge warning";
 
-    $("deployInfo").textContent =
-      `Build ${latestBuild} is newer than current build ${currentBuild}.`;
+      badge.textContent =
+        "UPDATE AVAILABLE";
+
+    }
+
+
+    if (info) {
+
+      info.textContent =
+        `Build ${latestBuild} is newer than current build ${currentBuild}.`;
+
+    }
 
   }
 
   else {
 
-    $("otaBadge").textContent =
-      "OTA READY";
+    if (badge) {
 
-    $("otaBadge").className =
-      "badge safe";
+      badge.className =
+        "badge safe";
 
-    $("deployInfo").textContent =
-      "No newer firmware is available.";
+      badge.textContent =
+        "OTA READY";
+
+    }
+
+
+    if (info) {
+
+      info.textContent =
+        "No newer firmware is available.";
+
+    }
 
   }
 
@@ -2496,14 +3110,14 @@ function renderFirmware() {
 
 
 // ============================================================
-// FIRMWARE HISTORY
+// OTA HISTORY
 // ============================================================
 
 function renderFirmwareHistory() {
 
   const history =
-    state.firmware.history ||
-    {};
+    state.firmware
+      ?.history || {};
 
 
   const entries =
@@ -2513,42 +3127,52 @@ function renderFirmwareHistory() {
           Number(b) -
           Number(a)
       )
-      .slice(0,20);
+      .slice(
+        0,
+        20
+      );
 
 
   if (!entries.length) {
 
-    $("firmwareHistory").innerHTML =
-      "No firmware releases.";
+    safeHTML(
+      "firmwareHistory",
+      "No firmware releases."
+    );
 
     return;
 
   }
 
 
-  $("firmwareHistory").innerHTML =
+  safeHTML(
+
+    "firmwareHistory",
+
     entries.map(
       ([,x]) => `
 
-      <div class="firmware-history-item">
+        <div class="firmware-history-item">
 
-        <strong>
-          v${x.version || "--"}
-          · Build ${x.build ?? "--"}
-        </strong>
+          <strong>
+            v${x.version || "--"}
+            · Build ${x.build ?? "--"}
+          </strong>
 
-        <span>
-          ${x.releaseNotes || "No release notes"}
-        </span>
+          <span>
+            ${x.releaseNotes || "No release notes"}
+          </span>
 
-        <small>
-          ${formatTime(x.publishedAt)}
-        </small>
+          <small>
+            ${formatTime(x.publishedAt)}
+          </small>
 
-      </div>
+        </div>
 
       `
-    ).join("");
+    ).join("")
+
+  );
 
 }
 
@@ -2576,7 +3200,7 @@ async function calculateSHA256(
       byte =>
         byte
           .toString(16)
-          .padStart(2,"0")
+          .padStart(2, "0")
     )
     .join("");
 
@@ -2584,498 +3208,524 @@ async function calculateSHA256(
 
 
 // ============================================================
-// UPLOAD FIRMWARE
+// UPLOAD OTA
 // ============================================================
 
-$("uploadFirmware").onclick =
-async () => {
+$("uploadFirmware")
+  ?.addEventListener(
+    "click",
+    async () => {
 
-  const file =
-    $("firmwareFile").files[0];
-
-
-  const version =
-    $("firmwareVersionInput")
-      .value
-      .trim();
+      const file =
+        $("firmwareFile")
+          ?.files?.[0];
 
 
-  const build =
-    num(
-      $("firmwareBuildInput").value,
-      0
-    );
+      const version =
+        $("firmwareVersionInput")
+          ?.value
+          .trim();
 
 
-  const hardware =
-    $("firmwareHardwareInput")
-      .value
-      .trim();
+      const build =
+        num(
+          $("firmwareBuildInput")
+            ?.value,
+          0
+        );
 
 
-  const notes =
-    $("releaseNotesInput")
-      .value
-      .trim();
+      const hardware =
+        $("firmwareHardwareInput")
+          ?.value
+          .trim();
 
 
-  if (!file) {
-
-    toast(
-      "Select a .bin file",
-      "error"
-    );
-
-    return;
-
-  }
+      const notes =
+        $("releaseNotesInput")
+          ?.value
+          .trim();
 
 
-  if (
-    !file.name
-      .toLowerCase()
-      .endsWith(".bin")
-  ) {
+      if (!file) {
 
-    toast(
-      "Only .bin files allowed",
-      "error"
-    );
+        toast(
+          "Select a .bin file.",
+          "error"
+        );
 
-    return;
+        return;
 
-  }
+      }
 
 
-  if (!version) {
+      if (
+        !file.name
+          .toLowerCase()
+          .endsWith(".bin")
+      ) {
 
-    toast(
-      "Enter firmware version",
-      "error"
-    );
+        toast(
+          "Only .bin firmware files are allowed.",
+          "error"
+        );
 
-    return;
+        return;
 
-  }
-
-
-  if (build <= 0) {
-
-    toast(
-      "Enter valid build",
-      "error"
-    );
-
-    return;
-
-  }
+      }
 
 
-  const currentBuild =
-    num(
-      state.status.firmwareBuild,
-      0
-    );
+      if (!version) {
+
+        toast(
+          "Enter firmware version.",
+          "error"
+        );
+
+        return;
+
+      }
 
 
-  if (
-    build <= currentBuild
-  ) {
+      if (build <= 0) {
 
-    toast(
-      `Build must be greater than ${currentBuild}`,
-      "error"
-    );
+        toast(
+          "Enter valid build number.",
+          "error"
+        );
 
-    return;
+        return;
 
-  }
+      }
 
 
-  try {
+      try {
 
-    $("uploadStatus")
-      .textContent =
-      "Calculating SHA-256...";
-
-
-    $("uploadProgress")
-      .style.width =
-      "0%";
+        $("uploadFirmware")
+          .disabled = true;
 
 
-    const buffer =
-      await file.arrayBuffer();
+        safeText(
+          "uploadStatus",
+          "Calculating SHA-256..."
+        );
 
 
-    const sha256 =
-      await calculateSHA256(
-        buffer
-      );
+        $("uploadProgress")
+          .style.width =
+          "0%";
 
 
-    $("otaHash").textContent =
-      sha256;
+        const buffer =
+          await file.arrayBuffer();
 
 
-    $("uploadStatus")
-      .textContent =
-      "Uploading firmware...";
+        const sha256 =
+          await calculateSHA256(
+            buffer
+          );
 
 
-    const safeFileName =
-      file.name.replace(
-        /[^a-zA-Z0-9._-]/g,
-        "_"
-      );
+        safeText(
+          "otaHash",
+          sha256
+        );
 
 
-    const storagePath =
-      `firmware/${hardware}/build-${build}-${safeFileName}`;
+        const safeFileName =
+          file.name.replace(
+            /[^a-zA-Z0-9._-]/g,
+            "_"
+          );
 
 
-    const fileRef =
-      storageRef(
-        storage,
-        storagePath
-      );
+        const storagePath =
+          `firmware/${hardware}/build-${build}-${safeFileName}`;
 
 
-    const uploadTask =
-      uploadBytesResumable(
-        fileRef,
-        file,
-        {
+        safeText(
+          "uploadStatus",
+          "Starting upload..."
+        );
 
-          contentType:
-            "application/octet-stream",
 
-          customMetadata: {
+        const fileRef =
+          storageRef(
+            storage,
+            storagePath
+          );
 
-            firmwareVersion:
-              version,
 
-            firmwareBuild:
-              String(build),
+        const task =
+          uploadBytesResumable(
 
-            hardwareVersion:
-              hardware,
+            fileRef,
 
-            sha256:
-              sha256
+            file,
+
+            {
+              contentType:
+                "application/octet-stream",
+
+              customMetadata: {
+
+                firmwareVersion:
+                  version,
+
+                firmwareBuild:
+                  String(build),
+
+                hardwareVersion:
+                  hardware,
+
+                sha256
+
+              }
+
+            }
+
+          );
+
+
+        await new Promise(
+          (resolve, reject) => {
+
+            task.on(
+
+              "state_changed",
+
+              snapshot => {
+
+                const percent =
+                  snapshot.totalBytes > 0
+
+                    ? (
+                        snapshot.bytesTransferred /
+                        snapshot.totalBytes
+                      ) * 100
+
+                    : 0;
+
+
+                $("uploadProgress")
+                  .style.width =
+                  percent + "%";
+
+
+                safeText(
+                  "uploadStatus",
+                  `Uploading ${percent.toFixed(0)}%`
+                );
+
+              },
+
+              reject,
+
+              resolve
+
+            );
 
           }
-
-        }
-      );
+        );
 
 
-    await new Promise(
-      (resolve,reject) => {
-
-        uploadTask.on(
-
-          "state_changed",
-
-          snapshot => {
-
-            const percent =
-              (
-                snapshot.bytesTransferred /
-                snapshot.totalBytes
-              ) * 100;
+        safeText(
+          "uploadStatus",
+          "Creating download URL..."
+        );
 
 
-            $("uploadProgress")
-              .style.width =
-              percent + "%";
+        const url =
+          await getDownloadURL(
+            task.snapshot.ref
+          );
 
 
-            $("uploadStatus")
-              .textContent =
-              `Uploading ${percent.toFixed(0)}%`;
+        const timestamp =
+          Date.now();
 
-          },
 
-          reject,
+        const release = {
 
-          resolve
+          version,
+
+          build,
+
+          hardwareVersion:
+            hardware,
+
+          fileName:
+            file.name,
+
+          fileSize:
+            file.size,
+
+          sha256,
+
+          url,
+
+          releaseNotes:
+            notes,
+
+          publishedAt:
+            timestamp
+
+        };
+
+
+        await update(
+
+          ref(
+            db,
+            "siloSystem/firmware/latest"
+          ),
+
+          release
 
         );
 
+
+        await update(
+
+          ref(
+            db,
+            `siloSystem/firmware/history/${timestamp}`
+          ),
+
+          release
+
+        );
+
+
+        $("uploadProgress")
+          .style.width =
+          "100%";
+
+
+        safeText(
+          "uploadStatus",
+          "Firmware published successfully."
+        );
+
+
+        toast(
+          "Firmware published."
+        );
+
       }
-    );
+
+      catch(error) {
+
+        console.error(
+          "OTA upload:",
+          error
+        );
 
 
-    $("uploadStatus")
-      .textContent =
-      "Creating download URL...";
+        safeText(
+          "uploadStatus",
+          firebaseError(error)
+        );
 
 
-    const downloadURL =
-      await getDownloadURL(
-        uploadTask.snapshot.ref
-      );
+        toast(
+          firebaseError(error),
+          "error"
+        );
 
+      }
 
-    const timestamp =
-      Date.now();
+      finally {
 
+        $("uploadFirmware")
+          .disabled = false;
 
-    const release = {
+      }
 
-      version,
-
-      build,
-
-      hardwareVersion:
-        hardware,
-
-      fileName:
-        file.name,
-
-      fileSize:
-        file.size,
-
-      sha256,
-
-      url:
-        downloadURL,
-
-      releaseNotes:
-        notes,
-
-      publishedAt:
-        timestamp
-
-    };
-
-
-    // Latest firmware
-
-    await update(
-      ref(
-        db,
-        "siloSystem/firmware/latest"
-      ),
-      release
-    );
-
-
-    // History
-
-    await update(
-      ref(
-        db,
-        `siloSystem/firmware/history/${timestamp}`
-      ),
-      release
-    );
-
-
-    $("uploadProgress")
-      .style.width =
-      "100%";
-
-
-    $("uploadStatus")
-      .textContent =
-      "Firmware published successfully.";
-
-
-    toast(
-      "Firmware published"
-    );
-
-  }
-
-  catch(error) {
-
-    console.error(
-      "OTA upload:",
-      error
-    );
-
-
-    $("uploadStatus")
-      .textContent =
-      "Upload failed.";
-
-
-    toast(
-      error.message ||
-      "Upload failed",
-      "error"
-    );
-
-  }
-
-};
+    }
+  );
 
 
 // ============================================================
-// DEPLOY LATEST
+// DEPLOY
 // ============================================================
 
-$("deployLatest").onclick =
-async () => {
+$("deployLatest")
+  ?.addEventListener(
+    "click",
+    async () => {
 
-  const latest =
-    getFirmwareLatest();
-
-
-  const device =
-    getFirmwareDevice();
+      const latest =
+        latestFirmware();
 
 
-  if (!latest.url) {
+      if (!latest.url) {
 
-    toast(
-      "No firmware available",
-      "error"
-    );
+        toast(
+          "No firmware available.",
+          "error"
+        );
 
-    return;
+        return;
 
-  }
-
-
-  if (
-    state.status.gasDetected ||
-    state.control.emergency
-  ) {
-
-    toast(
-      "OTA blocked during emergency/gas",
-      "error"
-    );
-
-    return;
-
-  }
+      }
 
 
-  const target =
-    device.deviceId ||
-    DEVICE_ID;
+      if (
+        state.status.gasDetected ||
+        state.control.emergency
+      ) {
+
+        toast(
+          "OTA blocked during safety condition.",
+          "error"
+        );
+
+        return;
+
+      }
 
 
-  if (
-    !confirm(
-      `Deploy v${latest.version} build ${latest.build} to ${target}?`
-    )
-  ) return;
+      const device =
+        firmwareDevice();
 
 
-  const command = {
-
-    commandId:
-      "ota-" + Date.now(),
-
-    targetDevice:
-      target,
-
-    firmwareUrl:
-      latest.url,
-
-    firmwareVersion:
-      latest.version,
-
-    firmwareBuild:
-      Number(latest.build),
-
-    firmwareSize:
-      Number(latest.fileSize),
-
-    firmwareSha256:
-      latest.sha256,
-
-    hardwareVersion:
-      latest.hardwareVersion,
-
-    releaseNotes:
-      latest.releaseNotes || "",
-
-    requestedAt:
-      Date.now()
-
-  };
+      const target =
+        device.deviceId ||
+        DEVICE_ID;
 
 
-  try {
+      if (
+        !confirm(
+          `Deploy v${latest.version} build ${latest.build} to ${target}?`
+        )
+      ) {
 
-    await update(
+        return;
 
-      ref(
-        db,
-        "siloSystem/firmware/command"
-      ),
-
-      command
-
-    );
+      }
 
 
-    toast(
-      "OTA command sent to ESP32"
-    );
+      const command = {
 
-  }
+        commandId:
+          "ota-" + Date.now(),
 
-  catch(error) {
+        targetDevice:
+          target,
 
-    console.error(error);
+        firmwareUrl:
+          latest.url,
 
-    toast(
-      error.message,
-      "error"
-    );
+        firmwareVersion:
+          latest.version,
 
-  }
+        firmwareBuild:
+          Number(
+            latest.build
+          ),
 
-};
+        firmwareSize:
+          Number(
+            latest.fileSize
+          ),
+
+        firmwareSha256:
+          latest.sha256,
+
+        hardwareVersion:
+          latest.hardwareVersion,
+
+        releaseNotes:
+          latest.releaseNotes ||
+          "",
+
+        requestedAt:
+          Date.now()
+
+      };
+
+
+      try {
+
+        await update(
+
+          ref(
+            db,
+            "siloSystem/firmware/command"
+          ),
+
+          command
+
+        );
+
+
+        toast(
+          "OTA command sent."
+        );
+
+      }
+
+      catch(error) {
+
+        toast(
+          firebaseError(error),
+          "error"
+        );
+
+      }
+
+    }
+  );
 
 
 // ============================================================
-// CLEAR OTA COMMAND
+// CLEAR OTA
 // ============================================================
 
-$("clearOtaCommand").onclick =
-async () => {
+$("clearOtaCommand")
+  ?.addEventListener(
+    "click",
+    async () => {
 
-  if (
-    !confirm(
-      "Clear pending OTA command?"
-    )
-  ) return;
+      if (
+        !confirm(
+          "Clear pending OTA command?"
+        )
+      ) {
 
+        return;
 
-  try {
-
-    await remove(
-      ref(
-        db,
-        "siloSystem/firmware/command"
-      )
-    );
+      }
 
 
-    toast(
-      "OTA command cleared"
-    );
+      try {
 
-  }
+        await remove(
+          ref(
+            db,
+            "siloSystem/firmware/command"
+          )
+        );
 
-  catch(error) {
 
-    toast(
-      error.message,
-      "error"
-    );
+        toast(
+          "OTA command cleared."
+        );
 
-  }
+      }
 
-};
+      catch(error) {
+
+        toast(
+          firebaseError(error),
+          "error"
+        );
+
+      }
+
+    }
+  );
 
 
 // ============================================================
@@ -3084,12 +3734,13 @@ async () => {
 
 function updateClock() {
 
-  $("clock")
-    .textContent =
+  safeText(
+    "clock",
     new Date()
       .toLocaleTimeString(
         "en-IN"
-      );
+      )
+  );
 
 }
 
@@ -3101,17 +3752,3 @@ setInterval(
 
 
 updateClock();
-
-
-// ============================================================
-// CHART INIT
-// ============================================================
-
-window.addEventListener(
-  "DOMContentLoaded",
-  () => {
-
-    initCharts();
-
-  }
-);
