@@ -1,0 +1,292 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#090d13">
+<title>SILO Guard | Smart Silo Monitoring</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div id="loginScreen" class="login-screen">
+  <div class="login-card">
+    <div class="logo">SG</div>
+    <h1>SILO Guard</h1>
+    <p>Smart Gas Monitoring & Ventilation</p>
+    <form id="loginForm">
+      <label>Email<input id="email" type="email" required></label>
+      <label>Password<input id="password" type="password" required></label>
+      <button class="primary-btn" type="submit">Sign In</button>
+      <div id="loginError" class="error-message"></div>
+    </form>
+  </div>
+</div>
+
+<div id="app" class="app hidden">
+<aside class="sidebar">
+  <div class="brand">
+    <div class="logo small">SG</div>
+    <div><b>SILO Guard</b><span>Smart Monitoring System</span></div>
+  </div>
+
+  <nav>
+    <button class="nav-item active" data-section="dashboard">⌂ Dashboard</button>
+    <button class="nav-item" data-section="zones">◉ 3-Zone Monitor</button>
+    <button class="nav-item" data-section="sensors">◈ Gas Sensors</button>
+    <button class="nav-item" data-section="analytics">⌁ Analytics</button>
+    <button class="nav-item" data-section="control">⚙ Controls</button>
+    <button class="nav-item" data-section="history">◷ History</button>
+    <button class="nav-item" data-section="settings">⚙ Settings</button>
+    <button class="nav-item" data-section="diagnostics">✓ Diagnostics</button>
+    <button class="nav-item" data-section="firmware">↻ Firmware OTA</button>
+  </nav>
+
+  <div class="sidebar-footer">
+    <div class="connection">
+      <i id="connectionDot" class="offline"></i>
+      <div><b id="connectionText">Device Offline</b>
+      <small id="lastSeen">Waiting for ESP32...</small></div>
+    </div>
+    <button id="logoutBtn" class="logout">Logout</button>
+  </div>
+</aside>
+
+<main class="main">
+<header class="topbar">
+  <div><h2 id="pageTitle">System Dashboard</h2><p>Real-time silo monitoring</p></div>
+  <div class="top-right">
+    <span id="systemBadge" class="system-badge safe">SYSTEM SECURE</span>
+    <span id="clock"></span>
+  </div>
+</header>
+
+<div id="dangerAlert" class="danger-alert hidden">
+  <b>!</b><div><strong>GAS SAFETY ALERT</strong><p id="dangerMessage"></p></div>
+</div>
+
+<section id="dashboard" class="page-section active-section">
+  <div class="stats-grid">
+    <div class="stat-card"><span>Maximum Gas</span><strong id="maxGas">0</strong>
+      <div class="progress"><i id="gasProgress"></i></div>
+      <small>Danger threshold <b id="thresholdText">2000</b></small>
+    </div>
+    <div class="stat-card"><span>Average Gas</span><strong id="averageGas">0</strong>
+      <small>Across 9 MQ-135 sensors</small>
+    </div>
+    <div class="stat-card"><span>Battery</span><strong id="batteryVoltage">0.00V</strong>
+      <div class="progress"><i id="batteryProgress"></i></div>
+      <small id="batteryPercentage">0%</small>
+    </div>
+    <div class="stat-card"><span>Ventilation</span><strong id="fanStatus">STANDBY</strong>
+      <small>Reason: <b id="activeReason">STANDBY</b></small>
+    </div>
+  </div>
+
+  <div class="section-title"><div><h3>System Overview</h3>
+    <p>Live device, gas, localization and curing state</p></div></div>
+
+  <div class="overview-grid">
+    <div class="panel">
+      <div class="kv"><span>Connection</span><b id="onlineCard" class="mini-state offline">OFFLINE</b></div>
+      <div class="kv"><span>Gas State</span><b id="gasState" class="pill safe">NORMAL</b></div>
+      <div class="kv"><span>Fill</span><b id="fillStatus">0% (EMPTY)</b></div>
+      <div class="kv"><span>Active Zone</span><b id="activeZone">None</b></div>
+      <div class="kv"><span>Rotation</span><b id="rotAngle">0°</b></div>
+      <div class="kv"><span>Vector Magnitude</span><b id="vectorMagnitude">0</b></div>
+    </div>
+
+    <div class="panel">
+      <h3>Curing / Storage</h3>
+      <div class="curing-big"><b id="curingStatus">HARVEST DATE NOT SET</b>
+        <span id="curingDay">0 / 14 days</span></div>
+      <div class="progress big"><i id="curingProgress"></i></div>
+      <div class="kv"><span>Harvest timestamp</span><b id="harvestDate">Not set</b></div>
+    </div>
+
+    <div class="panel">
+      <h3>Environment</h3>
+      <div class="env">
+        <div><small>Internal</small><b id="internalTemp">0.0°C</b><span id="internalHumidity">0%</span></div>
+        <div><small>External</small><b id="externalTemp">0.0°C</b><span id="externalHumidity">0%</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section-title"><div><h3>3-Zone Status</h3><p>Bottom / Middle / Top</p></div>
+    <button class="secondary" data-section="zones">View Zones</button></div>
+  <div id="zonePreview" class="zone-grid"></div>
+
+  <div class="section-title"><div><h3>Gas Sensors</h3><p>Live 9-channel ADC readings</p></div>
+    <button class="secondary" data-section="sensors">All Sensors</button></div>
+  <div id="sensorPreview" class="sensor-grid"></div>
+
+  <div class="section-title"><div><h3>Live Gas</h3><p>Last 40 telemetry updates</p></div></div>
+  <div class="chart-card"><canvas id="liveGasChart"></canvas></div>
+
+  <div class="section-title"><div><h3>Quick Controls</h3>
+    <p>Cloud commands; local ESP32 safety always has priority</p></div></div>
+  <div class="quick-controls">
+    <button id="quickFan">Fan <strong>OFF</strong></button>
+    <button id="quickBuzzer">Buzzer <strong>OFF</strong></button>
+    <button id="quickEmergency" class="emergency">Emergency <strong>ACTIVATE</strong></button>
+  </div>
+</section>
+
+<section id="zones" class="page-section">
+  <div class="section-title"><div><h3>3-Zone Monitoring</h3><p>Three sensors per zone</p></div></div>
+  <div id="zoneCards" class="zone-grid"></div>
+  <div class="chart-card"><h3>Zone Comparison</h3><canvas id="zoneChart"></canvas></div>
+</section>
+
+<section id="sensors" class="page-section">
+  <div class="section-title"><div><h3>Gas Sensors</h3><p>Individual MQ-135 readings and health</p></div></div>
+  <div id="allSensors" class="sensor-grid"></div>
+</section>
+
+<section id="analytics" class="page-section">
+  <div class="section-title"><div><h3>Analytics</h3><p>Saved telemetry history</p></div></div>
+  <div class="analytics-grid">
+    <div class="chart-card"><h3>Gas</h3><canvas id="gasHistoryChart"></canvas></div>
+    <div class="chart-card"><h3>Temperature</h3><canvas id="temperatureChart"></canvas></div>
+    <div class="chart-card"><h3>Humidity</h3><canvas id="humidityChart"></canvas></div>
+    <div class="chart-card"><h3>Battery</h3><canvas id="batteryChart"></canvas></div>
+  </div>
+</section>
+
+<section id="control" class="page-section">
+  <div class="section-title"><div><h3>System Controls</h3>
+    <p>Commands are requests; ESP32 local safety logic remains authoritative.</p></div></div>
+  <div class="control-grid">
+    <div class="panel"><h3>Ventilation Fan</h3>
+      <div class="control-state"><span id="fanIndicator" class="indicator"></span><b id="actualFanState">OFF</b></div>
+      <button id="fanToggle" class="large-btn">FAN OFF</button>
+      <small>Reason: <b id="activeFanReasonControl">STANDBY</b></small>
+    </div>
+    <div class="panel"><h3>Alarm Buzzer</h3>
+      <div class="control-state"><span id="buzzerIndicator" class="indicator"></span></div>
+      <button id="buzzerToggle" class="large-btn">BUZZER OFF</button>
+    </div>
+    <div class="panel"><h3>Control Mode</h3>
+      <div class="mode-buttons"><button id="autoMode" class="mode-button active">AUTO</button>
+      <button id="remoteMode" class="mode-button">REMOTE</button></div>
+      <p>Current mode: <b id="controlModeText">AUTO</b></p>
+    </div>
+    <div class="panel emergency-panel"><h3>Emergency</h3>
+      <p>Emergency requests fan and buzzer ON. ESP32 still applies local safety.</p>
+      <button id="emergencyBtn" class="emergency-btn">ACTIVATE EMERGENCY</button>
+      <button id="resetEmergency" class="reset-btn">RESET EMERGENCY</button>
+      <p>State: <b id="emergencyState">CLEAR</b></p>
+    </div>
+  </div>
+</section>
+
+<section id="history" class="page-section">
+  <div class="section-title"><div><h3>System History</h3><p id="historyCount">0 total records</p></div>
+    <button id="clearHistory" class="danger-outline">Clear All</button></div>
+  <div class="table-card"><div class="table-wrap"><table>
+    <thead><tr><th>Time</th><th>Zone</th><th>Max Gas</th><th>Avg Gas</th><th>Temp</th>
+    <th>Humidity</th><th>Battery</th><th>Fan</th><th>Status</th></tr></thead>
+    <tbody id="historyTable"></tbody>
+  </table></div></div>
+</section>
+
+<section id="settings" class="page-section">
+  <div class="section-title"><div><h3>System Settings</h3>
+    <p>Thresholds are stored in Firebase and read by ESP32</p></div></div>
+  <div class="settings-grid">
+    <div class="panel"><h3>Danger Threshold</h3>
+      <input id="gasThresholdInput" type="number" min="0" max="4095">
+      <button id="saveThreshold" class="primary-btn">Save</button>
+    </div>
+    <div class="panel"><h3>Warning Threshold</h3>
+      <input id="warningThresholdInput" type="number" min="0" max="4095">
+      <button id="saveWarning" class="primary-btn">Save</button>
+    </div>
+    <div class="panel"><h3>Device Information</h3>
+      <div class="kv"><span>IP Address</span><b id="ipAddress">--</b></div>
+      <div class="kv"><span>Wi-Fi RSSI</span><b id="wifiRSSI">--</b></div>
+      <div class="kv"><span>Firmware</span><b id="firmwareVersion">--</b></div>
+      <div class="kv"><span>Hardware</span><b id="hardwareVersion">--</b></div>
+      <div class="kv"><span>Last update</span><b id="lastUpdate">--</b></div>
+      <div class="kv"><span>Heartbeat</span><b id="lastHeartbeatValue">--</b></div>
+    </div>
+  </div>
+</section>
+
+<section id="diagnostics" class="page-section">
+  <div class="section-title"><div><h3>Diagnostics</h3><p>Device health and sensor health</p></div></div>
+  <div class="diag-grid">
+    <div class="panel">
+      <div class="diag-row"><span>Firebase</span><b id="diagFirebase">--</b></div>
+      <div class="diag-row"><span>Wi-Fi</span><b id="diagWiFi">--</b></div>
+      <div class="diag-row"><span>DHT Internal</span><b id="diagDhtInt">--</b></div>
+      <div class="diag-row"><span>DHT External</span><b id="diagDhtExt">--</b></div>
+      <div class="diag-row"><span>Fan Feedback</span><b id="diagFan">--</b></div>
+      <div class="diag-row"><span>Heartbeat</span><b id="diagHeartbeat">--</b></div>
+    </div>
+    <div class="panel"><h3>MQ-135 Health</h3><div id="mqDiagnostics"></div></div>
+  </div>
+</section>
+
+<section id="firmware" class="page-section">
+  <div class="section-title">
+    <div><h3>Firmware Management</h3>
+      <p>Cloud OTA update for the ESP32 device</p></div>
+    <span id="otaBadge" class="system-badge safe">OTA READY</span>
+  </div>
+
+  <div class="firmware-grid">
+    <div class="panel">
+      <h3>Current Device</h3>
+      <div class="kv"><span>Device ID</span><b id="otaDeviceId">--</b></div>
+      <div class="kv"><span>Firmware</span><b id="otaCurrentVersion">--</b></div>
+      <div class="kv"><span>Build</span><b id="otaCurrentBuild">--</b></div>
+      <div class="kv"><span>Hardware</span><b id="otaCurrentHardware">--</b></div>
+      <div class="kv"><span>OTA State</span><b id="otaState">--</b></div>
+      <div class="kv"><span>OTA Progress</span><b id="otaProgressText">0%</b></div>
+    </div>
+
+    <div class="panel">
+      <h3>Upload Firmware</h3>
+      <label class="file-label">Firmware .bin
+        <input id="firmwareFile" type="file" accept=".bin,application/octet-stream">
+      </label>
+      <label>Version<input id="firmwareVersionInput" placeholder="3.1.0"></label>
+      <label>Build Number<input id="firmwareBuildInput" type="number" min="1" placeholder="310"></label>
+      <label>Hardware Version<input id="firmwareHardwareInput" value="ESP32-DOIT-V1"></label>
+      <label>Release Notes<textarea id="releaseNotesInput" rows="4" placeholder="Bug fixes, improvements..."></textarea></label>
+      <button id="uploadFirmware" class="primary-btn">Upload & Publish</button>
+      <div class="progress big"><i id="uploadProgress"></i></div>
+      <small id="uploadStatus" class="muted">Select a .bin file.</small>
+    </div>
+
+    <div class="panel">
+      <h3>Deploy Update</h3>
+      <div class="kv"><span>Latest Version</span><b id="otaLatestVersion">--</b></div>
+      <div class="kv"><span>Latest Build</span><b id="otaLatestBuild">--</b></div>
+      <div class="kv"><span>Target</span><b id="otaTarget">ALL</b></div>
+      <div class="kv"><span>SHA-256</span><b id="otaHash" class="hash">--</b></div>
+      <button id="deployLatest" class="primary-btn">Deploy Latest to Device</button>
+      <button id="clearOtaCommand" class="reset-btn">Clear Pending Command</button>
+      <p id="deployInfo">OTA is automatically blocked by the ESP32 during gas danger or emergency.</p>
+    </div>
+
+    <div class="panel">
+      <h3>OTA History</h3>
+      <div id="firmwareHistory" class="ota-history">No firmware releases yet.</div>
+    </div>
+  </div>
+</section>
+
+</main>
+</div>
+
+<div id="toast" class="toast"></div>
+<script type="module" src="app.js"></script>
+</body>
+</html>
