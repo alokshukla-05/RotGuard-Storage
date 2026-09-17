@@ -2,20 +2,21 @@
 // SILO GUARD - APP.JS (fixed + hardened)
 // ============================================================
 
+// NOTE: firmware is no longer uploaded to Firebase Storage — the
+// ESP32 pulls its .bin from a GitHub Release asset URL instead (see
+// firmware.ino). storage/storageRef/uploadBytesResumable/getDownloadURL
+// are unused here now; if firebase-config.js exports them purely for
+// this file, they can be dropped from there too.
 import {
   auth,
   db,
-  storage,
   signInWithEmailAndPassword,
   onAuthStateChanged,
   signOut,
   ref,
   onValue,
   update,
-  remove,
-  storageRef,
-  uploadBytesResumable,
-  getDownloadURL
+  remove
 } from "./firebase-config.js";
 
 // ============================================================
@@ -381,6 +382,8 @@ function renderStatus() {
   setText("activeZone", num(s.activeRotZone, -1) < 0 ? "None" : "Zone " + s.activeRotZone);
   setText("rotAngle", num(s.preciseRotAngle, 0).toFixed(1) + "°");
   setText("vectorMagnitude", num(s.vectorMagnitude, 0).toFixed(0));
+  setText("manualOverride", s.manualOverride ? "ACTIVE (SWITCH ON)" : "OFF");
+  setText("controlManualOverride", s.manualOverride ? "ACTIVE" : "OFF");
 
   setText("ipAddress", s.ipAddress || "--");
   setText("wifiRSSI", s.wifiRSSI !== undefined ? s.wifiRSSI + " dBm" : "--");
@@ -434,7 +437,66 @@ function renderCuring() {
 
   setWidth("curingProgress", progress);
   setText("harvestDate", s.harvestTimestamp ? formatTime(s.harvestTimestamp) : "Not set");
+
+  // Keep the date picker in sync with the device's reported harvest
+  // date, but don't clobber it while the person is actively editing it.
+  const harvestInput = $("harvestDateInput");
+  if (harvestInput && document.activeElement !== harvestInput) {
+    harvestInput.value = s.harvestTimestamp
+      ? new Date(num(s.harvestTimestamp, 0)).toISOString().slice(0, 10)
+      : "";
+  }
 }
+
+// ============================================================
+// HARVEST DATE
+//
+// Writes to /siloSystem/settings/harvestTimestamp as whole seconds
+// (the firmware compares it against its own unixNow(), which is
+// seconds — not the ms the rest of the dashboard uses for display).
+// Firmware treats exactly 0 as "clear the harvest date" — see the
+// comment above readSettings() in firmware.ino.
+// ============================================================
+
+$("saveHarvest")?.addEventListener("click", async event => {
+  const value = $("harvestDateInput")?.value;
+
+  if (!value) {
+    toast("Pick a date first", "error");
+    return;
+  }
+
+  const epochSeconds = Math.floor(new Date(value + "T00:00:00").getTime() / 1000);
+
+  if (!Number.isFinite(epochSeconds) || epochSeconds <= 0) {
+    toast("Invalid date", "error");
+    return;
+  }
+
+  setBusy(event.currentTarget, true);
+  try {
+    await update(ref(db, "siloSystem/settings"), { harvestTimestamp: epochSeconds });
+    toast("Curing started");
+  } catch (error) {
+    toast(error.message, "error");
+  } finally {
+    setBusy(event.currentTarget, false);
+  }
+});
+
+$("clearHarvest")?.addEventListener("click", async event => {
+  if (!confirm("Clear the harvest date and stop curing tracking?")) return;
+
+  setBusy(event.currentTarget, true);
+  try {
+    await update(ref(db, "siloSystem/settings"), { harvestTimestamp: 0 });
+    toast("Harvest date cleared");
+  } catch (error) {
+    toast(error.message, "error");
+  } finally {
+    setBusy(event.currentTarget, false);
+  }
+});
 
 // ============================================================
 // CONNECTION
@@ -691,6 +753,19 @@ $("emergencyBtn")?.addEventListener("click", event => {
 $("resetEmergency")?.addEventListener("click", event => {
   if (!confirm("Reset emergency?")) return;
   writeControl({ emergency: false, fan: false, buzzer: false, mode: "AUTO" }, event.currentTarget);
+});
+
+// ============================================================
+// REBOOT
+//
+// The ESP32 clears /siloSystem/control/reboot itself right before
+// restarting, and refuses to reboot mid-OTA (see handleRemoteReboot()
+// in firmware.ino) — so this is safe to fire without extra guards here.
+// ============================================================
+
+$("rebootBtn")?.addEventListener("click", event => {
+  if (!confirm("Restart the ESP32? It will be offline for a few seconds.")) return;
+  writeControl({ reboot: true }, event.currentTarget);
 });
 
 // ============================================================
@@ -954,6 +1029,7 @@ function renderFirmware() {
   setText("otaCurrentVersion", currentVersion);
   setText("otaCurrentBuild", currentBuild || "--");
   setText("otaCurrentHardware", device.hardwareVersion || state.status.hardwareVersion || "--");
+  setText("otaSource", state.status.otaSource || "GITHUB");
   setText("otaState", device.state || "IDLE");
   setText("otaProgressText", num(device.progress, 0) + "%");
 
@@ -967,13 +1043,26 @@ function renderFirmware() {
   const emergency = Boolean(state.control.emergency);
   const blocked = gas || emergency;
 
+  const deviceState = device.state || "IDLE";
+  const liveStates = ["CONNECTING", "DOWNLOADING", "INSTALLING"];
+  const otaInProgress = liveStates.includes(deviceState);
+
   const deployBtn = $("deployLatest");
-  if (deployBtn) deployBtn.disabled = !newer || blocked || !latest.url;
+  if (deployBtn) deployBtn.disabled = !newer || blocked || !latest.url || otaInProgress;
 
   const otaBadge = $("otaBadge");
   const deployInfo = $("deployInfo");
 
-  if (blocked) {
+  // Live device state takes priority over the "is there a newer build"
+  // comparison below — while an update is actually downloading/installing,
+  // the badge should say so rather than still reading "UPDATE AVAILABLE".
+  if (otaInProgress) {
+    if (otaBadge) { otaBadge.textContent = deviceState; otaBadge.className = "badge warning"; }
+    if (deployInfo) deployInfo.textContent = `OTA in progress: ${deviceState.toLowerCase()} (${num(device.progress, 0)}%).`;
+  } else if (deviceState === "FAILED" || deviceState === "REJECTED") {
+    if (otaBadge) { otaBadge.textContent = deviceState; otaBadge.className = "badge danger"; }
+    if (deployInfo) deployInfo.textContent = device.error || "The last OTA attempt did not succeed.";
+  } else if (blocked) {
     if (otaBadge) { otaBadge.textContent = "OTA BLOCKED"; otaBadge.className = "badge danger"; }
     if (deployInfo) deployInfo.textContent = "OTA is blocked while gas danger or emergency is active.";
   } else if (newer) {
@@ -1014,26 +1103,82 @@ async function calculateSHA256(buffer) {
 }
 
 // ============================================================
-// UPLOAD FIRMWARE
+// FIRMWARE HASH — local-only, nothing is uploaded from here
+//
+// The person still publishes the .bin as a GitHub Release asset
+// themselves (outside this dashboard). Picking the same file here
+// just computes its SHA-256 and size client-side so those don't
+// have to be typed in by hand, and lets them confirm the hash
+// matches what GitHub shows for the asset before registering it.
 // ============================================================
 
-$("uploadFirmware")?.addEventListener("click", async event => {
-  const button = event.currentTarget;
-  const file = $("firmwareFile")?.files[0];
-  const version = $("firmwareVersionInput")?.value.trim() || "";
-  const build = num($("firmwareBuildInput")?.value, 0);
-  const hardware = $("firmwareHardwareInput")?.value.trim() || "";
-  const notes = $("releaseNotesInput")?.value.trim() || "";
-  const statusEl = $("uploadStatus");
-  const progressEl = $("uploadProgress");
+let pendingFirmwareHash = "";
+let pendingFirmwareSize = 0;
+
+$("firmwareFile")?.addEventListener("change", async event => {
+  const file = event.currentTarget.files[0];
+  const hashStatus = $("hashStatus");
+  const hashDisplay = $("computedHash");
+
+  pendingFirmwareHash = "";
+  pendingFirmwareSize = 0;
 
   if (!file) {
-    toast("Select a .bin file", "error");
+    if (hashStatus) hashStatus.textContent = "No file selected.";
+    if (hashDisplay) hashDisplay.textContent = "--";
     return;
   }
 
   if (!file.name.toLowerCase().endsWith(".bin")) {
     toast("Only .bin files allowed", "error");
+    event.currentTarget.value = "";
+    if (hashStatus) hashStatus.textContent = "No file selected.";
+    return;
+  }
+
+  if (hashStatus) hashStatus.textContent = "Calculating SHA-256...";
+
+  try {
+    const buffer = await file.arrayBuffer();
+    const sha256 = await calculateSHA256(buffer);
+
+    pendingFirmwareHash = sha256;
+    pendingFirmwareSize = file.size;
+
+    if (hashDisplay) hashDisplay.textContent = sha256;
+    if (hashStatus) hashStatus.textContent = `${file.name} — ${(file.size / 1024).toFixed(1)} KB. Matches your GitHub release? Fill in the URL below.`;
+  } catch (error) {
+    console.error(error);
+    if (hashStatus) hashStatus.textContent = "Could not hash file.";
+    toast(error.message || "Hashing failed", "error");
+  }
+});
+
+// ============================================================
+// REGISTER GITHUB RELEASE
+//
+// Writes the release metadata straight to
+// /siloSystem/firmware/latest (+ history) — no upload involved.
+// The ESP32 only ever fetches from the URL you paste here once you
+// hit "Deploy Latest".
+// ============================================================
+
+$("publishFirmware")?.addEventListener("click", async event => {
+  const button = event.currentTarget;
+  const url = $("firmwareUrlInput")?.value.trim() || "";
+  const version = $("firmwareVersionInput")?.value.trim() || "";
+  const build = num($("firmwareBuildInput")?.value, 0);
+  const hardware = $("firmwareHardwareInput")?.value.trim() || "";
+  const notes = $("releaseNotesInput")?.value.trim() || "";
+  const statusEl = $("uploadStatus");
+
+  if (!url) {
+    toast("Paste the GitHub Release asset URL", "error");
+    return;
+  }
+
+  if (!/^https:\/\//i.test(url)) {
+    toast("URL must be https://", "error");
     return;
   }
 
@@ -1052,6 +1197,11 @@ $("uploadFirmware")?.addEventListener("click", async event => {
     return;
   }
 
+  if (!pendingFirmwareHash) {
+    toast("Select the .bin locally first so its hash can be verified", "error");
+    return;
+  }
+
   const currentBuild = num(state.status.firmwareBuild, 0);
   if (build <= currentBuild) {
     toast(`Build must be greater than ${currentBuild}`, "error");
@@ -1059,56 +1209,18 @@ $("uploadFirmware")?.addEventListener("click", async event => {
   }
 
   setBusy(button, true);
+  if (statusEl) statusEl.textContent = "Registering release...";
 
   try {
-    if (statusEl) statusEl.textContent = "Calculating SHA-256...";
-    if (progressEl) progressEl.style.width = "0%";
-
-    const buffer = await file.arrayBuffer();
-    const sha256 = await calculateSHA256(buffer);
-
-    setText("otaHash", sha256);
-    if (statusEl) statusEl.textContent = "Uploading firmware...";
-
-    const safeFileName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
-    const storagePath = `firmware/${hardware}/build-${build}-${safeFileName}`;
-    const fileRef = storageRef(storage, storagePath);
-
-    const uploadTask = uploadBytesResumable(fileRef, file, {
-      contentType: "application/octet-stream",
-      customMetadata: {
-        firmwareVersion: version,
-        firmwareBuild: String(build),
-        hardwareVersion: hardware,
-        sha256: sha256
-      }
-    });
-
-    await new Promise((resolve, reject) => {
-      uploadTask.on(
-        "state_changed",
-        snapshot => {
-          const percent = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
-          if (progressEl) progressEl.style.width = percent + "%";
-          if (statusEl) statusEl.textContent = `Uploading ${percent.toFixed(0)}%`;
-        },
-        reject,
-        resolve
-      );
-    });
-
-    if (statusEl) statusEl.textContent = "Creating download URL...";
-    const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
     const timestamp = Date.now();
 
     const release = {
       version,
       build,
       hardwareVersion: hardware,
-      fileName: file.name,
-      fileSize: file.size,
-      sha256,
-      url: downloadURL,
+      fileSize: pendingFirmwareSize,
+      sha256: pendingFirmwareHash,
+      url,
       releaseNotes: notes,
       publishedAt: timestamp
     };
@@ -1116,15 +1228,12 @@ $("uploadFirmware")?.addEventListener("click", async event => {
     await update(ref(db, "siloSystem/firmware/latest"), release);
     await update(ref(db, `siloSystem/firmware/history/${timestamp}`), release);
 
-    if (progressEl) progressEl.style.width = "100%";
-    if (statusEl) statusEl.textContent = "Firmware published successfully.";
-    toast("Firmware published");
-
-    $("firmwareFile").value = "";
+    if (statusEl) statusEl.textContent = "Release registered. Ready to deploy.";
+    toast("Release registered");
   } catch (error) {
-    console.error("OTA upload:", error);
-    if (statusEl) statusEl.textContent = "Upload failed.";
-    toast(error.message || "Upload failed", "error");
+    console.error("Firmware registration:", error);
+    if (statusEl) statusEl.textContent = "Registration failed.";
+    toast(error.message || "Registration failed", "error");
   } finally {
     setBusy(button, false);
   }
