@@ -140,6 +140,7 @@
     <div class="kv"><span>Active Zone</span><b id="activeZone">None</b></div>
     <div class="kv"><span>Rotation</span><b id="rotAngle">0°</b></div>
     <div class="kv"><span>Vector</span><b id="vectorMagnitude">0</b></div>
+    <div class="kv"><span>Manual Override</span><b id="manualOverride">OFF</b></div>
   </div>
 
   <div class="panel">
@@ -150,6 +151,17 @@
     </div>
     <div class="progress big"><i id="curingProgress"></i></div>
     <div class="kv"><span>Harvest</span><b id="harvestDate">Not set</b></div>
+
+    <div class="curing-set">
+      <label>
+        Set Harvest Date
+        <input id="harvestDateInput" type="date">
+      </label>
+      <div class="curing-actions">
+        <button id="saveHarvest" class="primary-btn">Start Curing</button>
+        <button id="clearHarvest" class="reset-btn">Clear</button>
+      </div>
+    </div>
   </div>
 
   <div class="panel">
@@ -245,6 +257,13 @@
       <button id="resetEmergency" class="reset-btn" type="button">RESET</button>
       <p>State: <b id="emergencyState">CLEAR</b></p>
     </div>
+
+    <div class="panel">
+      <h3>Device</h3>
+      <p>Manual override switch: <b id="controlManualOverride">OFF</b></p>
+      <p>Restarts the ESP32. In-progress firmware updates are never interrupted.</p>
+      <button id="rebootBtn" class="danger-outline full" type="button">RESTART DEVICE</button>
+    </div>
   </div>
 </section>
 
@@ -334,20 +353,36 @@
   <div class="kv"><span>Version</span><b id="otaCurrentVersion">--</b></div>
   <div class="kv"><span>Build</span><b id="otaCurrentBuild">--</b></div>
   <div class="kv"><span>Hardware</span><b id="otaCurrentHardware">--</b></div>
+  <div class="kv"><span>Source</span><b id="otaSource">--</b></div>
   <div class="kv"><span>OTA State</span><b id="otaState">--</b></div>
   <div class="kv"><span>Progress</span><b id="otaProgressText">0%</b></div>
 </div>
 
 <div class="panel">
-  <h3>Upload New Firmware</h3>
-  <label>Firmware `.bin`
+  <h3>Publish GitHub Release</h3>
+  <p class="ota-help">
+    Firmware is no longer hosted in Firebase Storage — the ESP32 downloads
+    the <code>.bin</code> straight from a GitHub Release asset. Publish the
+    release on GitHub first, then register it here so it can be deployed.
+  </p>
+
+  <label>1. Pick the same `.bin` locally to compute its hash
     <input id="firmwareFile" type="file" accept=".bin">
   </label>
+  <div class="hash-box">
+    <span>SHA-256 (auto-computed)</span>
+    <code id="computedHash">--</code>
+  </div>
+  <small id="hashStatus">No file selected.</small>
+
+  <label>2. GitHub Release asset URL
+    <input id="firmwareUrlInput" type="url" placeholder="https://github.com/user/repo/releases/download/v3.3.0/firmware.bin">
+  </label>
   <label>Version
-    <input id="firmwareVersionInput" type="text" placeholder="3.1.0">
+    <input id="firmwareVersionInput" type="text" placeholder="3.3.0">
   </label>
   <label>Build
-    <input id="firmwareBuildInput" type="number" placeholder="310">
+    <input id="firmwareBuildInput" type="number" placeholder="330">
   </label>
   <label>Hardware
     <input id="firmwareHardwareInput" type="text" value="ESP32-DOIT-V1">
@@ -355,9 +390,8 @@
   <label>Release Notes
     <textarea id="releaseNotesInput" placeholder="Bug fixes and improvements"></textarea>
   </label>
-  <button id="uploadFirmware" class="primary-btn full" type="button">UPLOAD &amp; PUBLISH</button>
-  <div class="progress big"><i id="uploadProgress"></i></div>
-  <small id="uploadStatus">Select firmware `.bin`.</small>
+  <button id="publishFirmware" class="primary-btn full" type="button">REGISTER RELEASE</button>
+  <small id="uploadStatus">Select the `.bin` to compute its hash, then fill in the GitHub URL.</small>
 </div>
 
 <div class="panel">
