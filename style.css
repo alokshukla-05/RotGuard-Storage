@@ -932,6 +932,55 @@ th {
   min-height: 38px;
 }
 
+.danger-outline.full {
+  width: 100%;
+  min-height: 46px;
+  margin-top: 10px;
+}
+
+/* =========================================================
+CURING SET
+========================================================= */
+
+.curing-set {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+.curing-set label {
+  display: block;
+  color: var(--muted);
+  font-size: 9px;
+  margin-bottom: 8px;
+}
+
+.curing-set input {
+  width: 100%;
+  padding: 11px;
+  margin-top: 6px;
+  background: #0a1118;
+  border: 1px solid var(--border);
+  color: white;
+  border-radius: 9px;
+  min-height: 44px;
+  font-size: 16px;
+}
+
+.curing-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.curing-actions .primary-btn {
+  flex: 2;
+}
+
+.curing-actions .reset-btn {
+  flex: 1;
+}
+
 /* =========================================================
 SETTINGS
 ========================================================= */
@@ -1020,6 +1069,25 @@ FIRMWARE
 
 .ota-info {
   margin-top: 12px;
+}
+
+.ota-help {
+  background: var(--panel2);
+  border-radius: 10px;
+  padding: 11px;
+  margin-bottom: 14px;
+  font-size: 9px;
+  line-height: 1.6;
+}
+
+.ota-help code {
+  color: var(--green);
+  font-size: 9px;
+}
+
+#hashStatus {
+  display: block;
+  margin: 8px 0 4px;
 }
 
 .firmware-history {
