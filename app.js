@@ -1,30 +1,34 @@
 // ============================================================
-// SILO GUARD - APP.JS (v5 schema: nested status tree + HMAC-signed commands)
+// SILO GUARD - APP.JS (v5, matches firmware.ino v5.0.1)
 // ============================================================
 //
-// Matches firmware.ino v5.0.1. Two command paths exist on the
-// device side:
+// Schema notes (v5 breaking change from earlier dashboard versions):
+//   - All live telemetry now lives under one nested node,
+//     /siloSystem/status, with nested groups: gas, zones,
+//     localization, climate, battery, fill, control, ai, risk,
+//     diagnostics, curing. There are no more separate top-level
+//     /siloSystem/sensors or /siloSystem/zones or
+//     /siloSystem/diagnostics nodes — the firmware stopped writing
+//     those.
+//   - /siloSystem/control still holds the legacy unsigned fields
+//     (mode, fan, buzzer, emergency) the firmware reads directly,
+//     PLUS a `command` child (the new HMAC-signed envelope) and an
+//     `ack` child the firmware writes back after processing one.
+//   - REBOOT, AI on/off, MQ calibration, and config restore only
+//     exist behind the signed command envelope now — there is no
+//     unsigned fallback for those on the firmware side.
+//   - OTA has no more Firebase Storage / "latest" staging step:
+//     the firmware reads a fully-formed, HMAC-signed manifest
+//     straight off /siloSystem/firmware/command.
 //
-//   1. LEGACY UNSIGNED — /siloSystem/control/{mode,fan,buzzer,emergency}
-//      and /siloSystem/settings/{gasThreshold,warningThreshold,
-//      harvestTimestamp,calibrateMQ,calibrateBattery,
-//      batteryReferenceVoltage,restoreConfig}. readControl()/
-//      readSettings() on the device read these directly — no
-//      signature required. Fan, buzzer, mode, emergency, thresholds,
-//      harvest date, MQ calibration, battery calibration and config
-//      restore all use this path.
-//
-//   2. SIGNED ENVELOPE — /siloSystem/control/command and
-//      /siloSystem/firmware/command. Every field is HMAC-SHA256
-//      signed with a secret that must match OTA_HMAC_SECRET in the
-//      firmware. Reboot, enabling/disabling the AI engine, and any
-//      firmware deploy go through this path.
-//
-// The HMAC secret lives ONLY in the `hmacSecret` variable below —
-// entered by the user each session via Settings, never written to
-// Firebase, never persisted to disk. This is a workable model for a
-// solo/hobby deployment; anything shared with other people should
-// move signing into a small trusted backend instead.
+// SECURITY NOTE: the HMAC secret entered on the Controls page lives
+// only in a JS variable for this tab (never written to Firebase,
+// localStorage, or anywhere else) and is used locally to sign what
+// you submit. That's adequate for a single-operator hobby setup.
+// For anything with more than one trusted operator, move signing
+// into a small server-side function instead of trusting every
+// browser tab with the raw secret.
+// ============================================================
 
 import {
   auth,
@@ -57,12 +61,13 @@ const ZONES = {
 // ============================================================
 
 const state = {
-  status: {},
-  control: {},
+  status: {},       // /siloSystem/status (nested)
+  control: {},       // /siloSystem/control (legacy fields + command/ack)
   settings: {},
-  events: {},
   history: {},
-  firmware: {}
+  firmware: {},       // /siloSystem/firmware (device/command/history)
+  events: {},
+  notifications: {}
 };
 
 let started = false;
@@ -74,6 +79,7 @@ let gasHistoryChart = null;
 let temperatureChart = null;
 let humidityChart = null;
 let batteryChart = null;
+let riskChart = null;
 
 // ============================================================
 // SHORTCUTS
@@ -90,7 +96,7 @@ function setText(id, value) {
 
 function setWidth(id, percent) {
   const el = $(id);
-  if (el) el.style.width = Math.max(0, Math.min(100, percent)) + "%";
+  if (el) el.style.width = percent + "%";
 }
 
 function num(value, fallback = 0) {
@@ -98,16 +104,15 @@ function num(value, fallback = 0) {
   return Number.isFinite(n) ? n : fallback;
 }
 
-// Safe nested-path getter for the deeply nested v5 status tree,
-// e.g. get(state.status, "gas.sensor1.raw", 0).
-function get(obj, path, fallback) {
+function g(path, fallback) {
+  // Safe getter into nested status object, e.g. g("gas.max", 0)
   const parts = path.split(".");
-  let cur = obj;
-  for (const p of parts) {
-    if (cur == null || typeof cur !== "object") return fallback;
-    cur = cur[p];
+  let node = state.status;
+  for (const part of parts) {
+    if (node == null || typeof node !== "object") return fallback;
+    node = node[part];
   }
-  return cur === undefined || cur === null ? fallback : cur;
+  return node === undefined || node === null ? fallback : node;
 }
 
 // ============================================================
@@ -120,7 +125,8 @@ function formatTime(value) {
   const date = new Date(n);
   if (Number.isNaN(date.getTime())) return "--";
   return date.toLocaleString("en-IN", {
-    day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit"
+    day: "2-digit", month: "short", year: "numeric",
+    hour: "2-digit", minute: "2-digit"
   });
 }
 
@@ -157,6 +163,69 @@ function setBusy(button, busy) {
 }
 
 // ============================================================
+// HMAC SIGNING
+//
+// Mirrors firmware.ino's hmacSha256Hex()/authenticateCommand()
+// canonical form exactly: commandId|commandAt|target|command|payload
+// (OTA manifests use a different, longer canonical — see deploySignedFirmware).
+// ============================================================
+
+async function hmacSha256Hex(secret, message) {
+  const enc = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    "raw", enc.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]
+  );
+  const signature = await crypto.subtle.sign("HMAC", key, enc.encode(message));
+  return Array.from(new Uint8Array(signature)).map(b => b.toString(16).padStart(2, "0")).join("");
+}
+
+function newCommandId() {
+  return "cmd-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 10);
+}
+
+async function sendSignedCommand(command, payload, button) {
+  if (!hmacSecret) {
+    toast("Enter the HMAC secret above first", "error");
+    return false;
+  }
+
+  const commandId = newCommandId();
+  const commandAt = Math.floor(Date.now() / 1000);
+  const canonical = `${commandId}|${commandAt}|${DEVICE_ID}|${command}|${payload}`;
+
+  setBusy(button, true);
+  try {
+    const signature = await hmacSha256Hex(hmacSecret, canonical);
+    await update(ref(db, "siloSystem/control/command"), {
+      commandId,
+      targetDevice: DEVICE_ID,
+      command,
+      payload,
+      signature,
+      timestamp: commandAt
+    });
+    toast(command + " command sent");
+    return true;
+  } catch (error) {
+    console.error(error);
+    toast(error.message || "Failed to send command", "error");
+    return false;
+  } finally {
+    setBusy(button, false);
+  }
+}
+
+$("hmacSecretInput")?.addEventListener("input", event => {
+  hmacSecret = event.currentTarget.value;
+  const statusEl = $("hmacStatus");
+  if (statusEl) {
+    statusEl.textContent = hmacSecret
+      ? "Secret set for this tab — signed commands will be accepted."
+      : "Not set — signed commands will be rejected by the device.";
+  }
+});
+
+// ============================================================
 // MOBILE SIDEBAR
 // ============================================================
 
@@ -175,6 +244,7 @@ function openSidebar() {
 $("menuToggle")?.addEventListener("click", () => {
   $("sidebar")?.classList.contains("open") ? closeSidebar() : openSidebar();
 });
+
 $("sidebarOverlay")?.addEventListener("click", closeSidebar);
 
 // ============================================================
@@ -183,6 +253,7 @@ $("sidebarOverlay")?.addEventListener("click", closeSidebar);
 
 $("loginForm")?.addEventListener("submit", async event => {
   event.preventDefault();
+
   const errorEl = $("loginError");
   const submitBtn = $("loginSubmit");
   if (errorEl) errorEl.textContent = "";
@@ -243,24 +314,29 @@ document.querySelectorAll(".nav-btn").forEach(button => {
 function openPage(page) {
   document.querySelectorAll(".page").forEach(s => s.classList.remove("active"));
   $(page)?.classList.add("active");
-  document.querySelectorAll(".nav-btn").forEach(b => b.classList.toggle("active", b.dataset.page === page));
+
+  document.querySelectorAll(".nav-btn").forEach(b => {
+    b.classList.toggle("active", b.dataset.page === page);
+  });
 
   const titles = {
-    dashboard: "System Dashboard", zones: "3-Zone Monitor", sensors: "Gas Sensors",
-    analytics: "Analytics", control: "System Controls", history: "System History",
-    settings: "System Settings", diagnostics: "Diagnostics", firmware: "Firmware Management"
+    dashboard: "System Dashboard",
+    zones: "3-Zone Monitor",
+    sensors: "Gas Sensors",
+    intelligence: "AI & Risk",
+    analytics: "Analytics",
+    control: "System Controls",
+    history: "System History",
+    events: "Events & Notifications",
+    settings: "System Settings",
+    diagnostics: "Diagnostics",
+    firmware: "Firmware Management"
   };
   setText("pageTitle", titles[page] || "SILO GUARD");
 }
 
 // ============================================================
 // DATABASE LISTENERS
-//
-// Only four top-level nodes matter now: status (the whole nested
-// tree), control (legacy fields the ack also lands under),
-// settings (read-back for the input fields), and firmware
-// (device/history — no more "latest" staging node). events and
-// history are separate lists.
 // ============================================================
 
 function onDbError(label) {
@@ -271,9 +347,18 @@ function onDbError(label) {
 }
 
 function startDatabaseListeners() {
+
   onValue(ref(db, "siloSystem/status"), snapshot => {
     state.status = snapshot.val() || {};
-    renderAll();
+    renderStatus();
+    renderCuring();
+    updateConnection();
+    updateLiveChart();
+    renderSensors();
+    renderZones();
+    renderIntelligence();
+    renderDiagnostics();
+    renderFirmware();
   }, onDbError("status"));
 
   onValue(ref(db, "siloSystem/control"), snapshot => {
@@ -283,13 +368,8 @@ function startDatabaseListeners() {
 
   onValue(ref(db, "siloSystem/settings"), snapshot => {
     state.settings = snapshot.val() || {};
-    renderSettingsInputs();
+    renderSettings();
   }, onDbError("settings"));
-
-  onValue(ref(db, "siloSystem/events"), snapshot => {
-    state.events = snapshot.val() || {};
-    renderEvents();
-  }, onDbError("events"));
 
   onValue(ref(db, "siloSystem/history"), snapshot => {
     state.history = snapshot.val() || {};
@@ -301,18 +381,17 @@ function startDatabaseListeners() {
     state.firmware = snapshot.val() || {};
     renderFirmware();
   }, onDbError("firmware"));
-}
 
-function renderAll() {
-  renderStatus();
-  renderRiskAI();
-  renderMQ();
-  renderCuring();
-  updateConnection();
-  renderSensors();
-  renderZones();
-  updateLiveChart();
-  renderFirmware();
+  onValue(ref(db, "siloSystem/events"), snapshot => {
+    state.events = snapshot.val() || {};
+    renderEvents();
+  }, onDbError("events"));
+
+  onValue(ref(db, "siloSystem/notifications"), snapshot => {
+    state.notifications = snapshot.val() || {};
+    renderEvents();
+  }, onDbError("notifications"));
+
 }
 
 // ============================================================
@@ -320,70 +399,96 @@ function renderAll() {
 // ============================================================
 
 function renderStatus() {
-  const s = state.status;
-
   const dangerThreshold = num(state.settings.gasThreshold, 2000);
   const warningThreshold = num(state.settings.warningThreshold, 1500);
-  const maxGas = num(get(s, "gas.max", 0));
-
-  setText("maxGas", Math.round(maxGas));
-  setText("averageGas", Math.round(num(get(s, "gas.average", 0))));
-  setText("thresholdText", dangerThreshold);
-
-  const trend = num(get(s, "gas.trendPerMinute", 0));
-  setText("gasTrendText", `Trend: ${trend > 0 ? "+" : ""}${trend.toFixed(0)}/min`);
-
-  const gasDanger = Boolean(get(s, "gas.detected", false));
+  const maxGas = num(g("gas.max"), 0);
+  const gasDanger = Boolean(g("gas.detected"));
   const warning = !gasDanger && maxGas >= warningThreshold;
 
-  setWidth("gasProgress", (maxGas / 4095) * 100);
+  setText("maxGas", Math.round(maxGas));
+  setText("averageGas", Math.round(num(g("gas.average"), 0)));
+  setText("thresholdText", dangerThreshold);
+
+  const trend = num(g("gas.trendPerMinute"), 0);
+  setText("gasTrendText", (trend >= 0 ? "+" : "") + trend.toFixed(0) + "/min");
+
+  setWidth("gasProgress", Math.min(100, (maxGas / 4095) * 100));
   const gasBar = $("gasProgress");
   if (gasBar) gasBar.className = gasDanger ? "danger" : warning ? "warning" : "";
 
-  const battery = num(get(s, "battery.percentage", 0));
-  setText("batteryVoltage", num(get(s, "battery.voltage", 0)).toFixed(2) + " V");
+  const battery = num(g("battery.percentage"), 0);
+  setText("batteryVoltage", num(g("battery.voltage"), 0).toFixed(2) + " V");
   setText("batteryPercentage", Math.round(battery) + "%");
-  setWidth("batteryProgress", battery);
+  setWidth("batteryProgress", Math.max(0, Math.min(100, battery)));
   const batteryBar = $("batteryProgress");
-  if (batteryBar) batteryBar.className = get(s, "battery.critical", false) ? "danger" : get(s, "battery.low", false) ? "warning" : "";
+  if (batteryBar) batteryBar.className = g("battery.critical") ? "danger" : g("battery.low") ? "warning" : "";
 
-  setText("internalTemp", num(get(s, "climate.internalTemperature", 0)).toFixed(1) + "°C");
-  setText("internalHumidity", Math.round(num(get(s, "climate.internalHumidity", 0))) + "%");
-  setText("externalTemp", num(get(s, "climate.externalTemperature", 0)).toFixed(1) + "°C");
-  setText("externalHumidity", Math.round(num(get(s, "climate.externalHumidity", 0))) + "%");
+  const riskScore = num(g("risk.score"), 0);
+  const riskLevel = g("risk.level", "LOW");
+  setText("riskScore", Math.round(riskScore));
+  setText("riskLevel", riskLevel);
+  const riskLevelEl = $("riskLevel");
+  if (riskLevelEl) {
+    riskLevelEl.className =
+      riskLevel === "CRITICAL" || riskLevel === "HIGH" ? "danger-text" :
+      riskLevel === "MEDIUM" ? "warning-text" : "safe-text";
+  }
 
-  setText("fanStatus", get(s, "control.fan", false) ? "ACTIVE" : "STANDBY");
-  setText("activeReason", get(s, "control.fanReason", "STANDBY"));
-  setText("fillStatus", get(s, "fill.status", "0% (EMPTY)"));
+  setText("internalTemp", num(g("climate.internalTemperature"), 0).toFixed(1) + "°C");
+  setText("internalHumidity", Math.round(num(g("climate.internalHumidity"), 0)) + "%");
+  setText("externalTemp", num(g("climate.externalTemperature"), 0).toFixed(1) + "°C");
+  setText("externalHumidity", Math.round(num(g("climate.externalHumidity"), 0)) + "%");
 
-  const zone = num(get(s, "localization.zone", -1));
+  const dhtFault = Boolean(g("climate.dhtSafetyFault"));
+  setText("dhtSafetyFaultText", dhtFault ? "YES — forcing fan on" : "NO");
+  const dhtFaultEl = $("dhtSafetyFaultText");
+  if (dhtFaultEl) dhtFaultEl.className = dhtFault ? "danger-text" : "safe-text";
+
+  const fanOn = Boolean(g("control.fan"));
+  const fanReason = g("control.fanReason", "STANDBY");
+  setText("fanStatus", fanOn ? "ACTIVE" : "STANDBY");
+  setText("activeReason", fanReason);
+  setText("fillStatus", g("fill.status", "0% (EMPTY)"));
+
+  const zone = num(g("localization.zone"), -1);
   setText("activeZone", zone < 0 ? "None" : "Zone " + zone);
-  setText("rotAngle", num(get(s, "localization.angle", 0)).toFixed(1) + "°");
-  setText("localizationConfidence", Math.round(num(get(s, "localization.confidence", 0))) + "%");
+  setText("rotAngle", num(g("localization.angle"), 0).toFixed(1) + "°");
+  setText("localizationConfidence", num(g("localization.confidence"), 0).toFixed(0) + "%");
 
-  const manualOverride = Boolean(get(s, "control.hardwareSwitch", false));
-  setText("manualOverride", manualOverride ? "ACTIVE (SWITCH ON)" : "OFF");
-  setText("controlManualOverride", manualOverride ? "ACTIVE" : "OFF");
+  setText("manualOverride", g("control.hardwareSwitch") ? "ACTIVE (SWITCH ON)" : "OFF");
 
-  const dhtFault = Boolean(get(s, "climate.dhtSafetyFault", false));
-  setText("dhtSafetyFault", dhtFault ? "FAULT — FAN FORCED ON" : "OK");
-  const dhtEl = $("dhtSafetyFault");
-  if (dhtEl) dhtEl.className = dhtFault ? "danger-text" : "safe-text";
+  setText("ipAddress", g("diagnostics.ip", "--"));
+  const rssi = g("diagnostics.wifiRSSI");
+  setText("wifiRSSI", rssi !== undefined && rssi !== null ? rssi + " dBm" : "--");
+  setText("firmwareVersion", state.status.firmwareVersion || "--");
+  setText("hardwareVersion", state.status.hardwareVersion || "--");
+  setText("configVersionText", g("diagnostics.configVersion", "--"));
 
-  setText("ipAddress", get(s, "diagnostics.ip", "--"));
-  setText("wifiRSSI", get(s, "diagnostics.wifiRSSI", undefined) !== undefined ? get(s, "diagnostics.wifiRSSI", 0) + " dBm" : "--");
-  setText("firmwareVersion", s.firmwareVersion || "--");
-  setText("hardwareVersion", s.hardwareVersion || "--");
-
-  const warmupComplete = Boolean(get(s, "gas.warmupComplete", false));
-  $("warmupAlert")?.classList.toggle("hidden", warmupComplete);
+  // Sensor-safety override (MQ warmup/fault or DHT staleness forcing the
+  // fan on) is a distinct, less severe state than a confirmed gas alarm —
+  // shown as a separate amber banner rather than folded into the red one.
+  const mqSafetyOverride = fanReason === "MQ SENSOR SAFETY";
+  const dhtSafetyOverride = fanReason === "DHT SENSOR SAFETY";
+  const safetyOverrideAlert = $("safetyFaultAlert");
+  if (safetyOverrideAlert) {
+    safetyOverrideAlert.classList.toggle("hidden", !(mqSafetyOverride || dhtSafetyOverride) || gasDanger);
+    setText(
+      "safetyFaultMessage",
+      mqSafetyOverride
+        ? "One or more MQ-135 sensors are faulted or still warming up — ventilation is on as a precaution."
+        : "DHT sensor readings are stale — ventilation is on as a precaution."
+    );
+  }
 
   const alertEl = $("dangerAlert");
   alertEl?.classList.toggle("hidden", !gasDanger && !warning);
-  setText("dangerMessage",
-    gasDanger ? `Gas danger confirmed. Maximum ADC: ${Math.round(maxGas)}. Local fan safety is active.`
-      : warning ? `Gas warning detected. Current ADC: ${Math.round(maxGas)}.`
-      : "Gas level normal."
+  setText(
+    "dangerMessage",
+    gasDanger
+      ? `Gas danger confirmed. Maximum ADC: ${Math.round(maxGas)}. Local fan safety is active.`
+      : warning
+        ? `Gas warning detected. Current ADC: ${Math.round(maxGas)}.`
+        : "Gas level normal."
   );
 
   const badge = $("systemBadge");
@@ -398,71 +503,28 @@ function renderStatus() {
 }
 
 // ============================================================
-// RISK / AI
-// ============================================================
-
-function renderRiskAI() {
-  const s = state.status;
-
-  const riskScore = num(get(s, "risk.score", 0));
-  const riskLevel = get(s, "risk.level", "LOW");
-  setText("riskScore", Math.round(riskScore));
-  setText("riskLevel", riskLevel);
-  const riskLevelEl = $("riskLevel");
-  if (riskLevelEl) {
-    riskLevelEl.className = riskLevel === "CRITICAL" || riskLevel === "HIGH" ? "danger-text"
-      : riskLevel === "MEDIUM" ? "warning-text" : "safe-text";
-  }
-  setText("riskReason", get(s, "risk.reason", "Conditions currently stable"));
-  setText("riskHumidity", Math.round(num(get(s, "risk.humidity", 0))));
-  setText("riskTemperature", Math.round(num(get(s, "risk.temperature", 0))));
-  setText("riskGasTrend", Math.round(num(get(s, "risk.gasTrend", 0))));
-
-  const aiEnabled = Boolean(get(s, "ai.enabled", false));
-  setText("aiStatusText", aiEnabled ? "Enabled" : "Disabled");
-  $("aiIndicator")?.classList.toggle("on", aiEnabled);
-  setText("aiFanRequest", get(s, "ai.fanRequest", false) ? "ON" : "OFF");
-  const confidence = get(s, "ai.confidence", null);
-  setText("aiConfidence", confidence === null ? "--" : Math.round(num(confidence)) + "%");
-  setText("aiReason", get(s, "ai.reason", "--") || "--");
-  setText("controlAiText", aiEnabled ? "ENABLED" : "DISABLED");
-}
-
-// ============================================================
-// MQ WARMUP / CALIBRATION
-// ============================================================
-
-function renderMQ() {
-  const s = state.status;
-  const warmup = Boolean(get(s, "gas.warmupComplete", false));
-  const calibrated = Boolean(get(s, "gas.calibrated", false));
-  const qualityGood = Boolean(get(s, "gas.calibrationQualityGood", false));
-  const variation = get(s, "gas.calibrationVariation", null);
-
-  setText("mqWarmupStatus", warmup ? "COMPLETE" : "IN PROGRESS");
-  setText("mqCalibratedStatus", calibrated ? "YES" : "NO");
-  setText("mqQualityStatus", calibrated ? (qualityGood ? "GOOD" : "POOR — recalibrate") : "--");
-  setText("mqVariation", variation === null ? "--" : num(variation).toFixed(1) + "%");
-}
-
-// ============================================================
 // CURING
 // ============================================================
 
 function renderCuring() {
-  const s = state.status;
-  const active = Boolean(get(s, "curing.active", false));
-  const harvestTs = num(get(s, "curing.harvestTimestamp", 0));
-  const progress = num(get(s, "curing.progress", 0));
+  const active = Boolean(g("curing.active"));
+  const harvestTs = g("curing.harvestTimestamp", 0);
+  const progress = Math.max(0, Math.min(100, num(g("curing.progress"), 0)));
 
-  setText("curingStatus", active ? "CURING ACTIVE" : harvestTs ? "CURING COMPLETE" : "HARVEST DATE NOT SET");
-  setText("curingDay", active ? `${num(get(s, "curing.day", 0))} / 14 days` : harvestTs ? "14 / 14 days" : "0 / 14 days");
+  setText(
+    "curingStatus",
+    active ? "CURING ACTIVE" : harvestTs ? "CURING COMPLETE" : "HARVEST DATE NOT SET"
+  );
+  setText(
+    "curingDay",
+    active ? `${num(g("curing.day"), 0)} / 14 days` : harvestTs ? "14 / 14 days" : "0 / 14 days"
+  );
   setWidth("curingProgress", progress);
   setText("harvestDate", harvestTs ? formatTime(harvestTs) : "Not set");
 
   const harvestInput = $("harvestDateInput");
   if (harvestInput && document.activeElement !== harvestInput) {
-    harvestInput.value = harvestTs ? new Date(harvestTs).toISOString().slice(0, 10) : "";
+    harvestInput.value = harvestTs ? new Date(num(harvestTs, 0)).toISOString().slice(0, 10) : "";
   }
 }
 
@@ -499,28 +561,55 @@ $("clearHarvest")?.addEventListener("click", async event => {
 
 // ============================================================
 // CONNECTION
+//
+// v5 writes online:true and timestamp (real epoch ms, or 0 if NTP
+// hasn't synced yet — timestampMs() no longer falls back to
+// millis()) on every successful telemetry write.
 // ============================================================
 
 function updateConnection() {
-  const timestamp = num(get(state.status, "timestamp", 0));
-  const timeSynced = Boolean(state.status.timeSynced);
-  const online = Boolean(state.status.online) && timeSynced && Date.now() - timestamp < OFFLINE_TIMEOUT;
-  const syncing = timestamp > 0 && !timeSynced;
+  const timestamp = num(state.status.timestamp, 0);
+  const synced = Boolean(state.status.timeSynced);
+  const online = timestamp > 0 && Date.now() - timestamp < OFFLINE_TIMEOUT;
+  const syncing = !synced && Boolean(state.status.online);
 
   $("connectionDot")?.classList.toggle("online", online);
   $("connectionDot")?.classList.toggle("offline", !online);
 
   setText("connectionText", online ? "Device Online" : syncing ? "Device Syncing Time" : "Device Offline");
-  setText("lastSeen", online ? "Heartbeat " + formatClock(timestamp)
-    : syncing ? "Waiting for NTP sync"
-    : timestamp ? "Last seen " + formatTime(timestamp) : "Waiting for ESP32");
+  setText(
+    "lastSeen",
+    online ? "Heartbeat " + formatClock(timestamp)
+      : syncing ? "Waiting for NTP sync"
+        : timestamp ? "Last seen " + formatTime(timestamp)
+          : "Waiting for ESP32"
+  );
   setText("onlineCard", online ? "ONLINE" : "OFFLINE");
 }
 
 setInterval(updateConnection, 3000);
 
 // ============================================================
-// SENSORS
+// MQ WARMUP / CALIBRATION STATUS
+// ============================================================
+
+function renderMqStatus() {
+  const warmupComplete = Boolean(g("gas.warmupComplete"));
+  const calibrated = Boolean(g("gas.calibrated"));
+  const qualityGood = Boolean(g("gas.calibrationQualityGood"));
+  const variation = num(g("gas.calibrationVariation"), 0);
+
+  setText("mqWarmupStatus", warmupComplete ? "Complete" : "In progress (~60s from boot)");
+  setText("mqCalibratedStatus", calibrated ? "YES" : "NO");
+  setText("mqQualityStatus", calibrated ? (qualityGood ? "GOOD" : "POOR — recalibrate") : "--");
+  setText("mqVariationStatus", calibrated ? variation.toFixed(1) + "%" : "--");
+
+  const qualityEl = $("mqQualityStatus");
+  if (qualityEl) qualityEl.className = !calibrated ? "" : qualityGood ? "safe-text" : "warning-text";
+}
+
+// ============================================================
+// SENSOR CARD
 // ============================================================
 
 function sensorLevel(value) {
@@ -533,28 +622,26 @@ function sensorLevel(value) {
 
 function sensorCard(index) {
   const base = `gas.sensor${index}`;
-  const filtered = num(get(state.status, `${base}.filtered`, 0));
-  const raw = get(state.status, `${base}.raw`, null);
-  const baseline = get(state.status, `${base}.baseline`, null);
-  const delta = get(state.status, `${base}.delta`, null);
-  const healthy = get(state.status, `${base}.healthy`, true);
-  const fault = get(state.status, `${base}.fault`, false);
+  const filtered = num(g(base + ".filtered"), 0);
+  const raw = num(g(base + ".raw"), 0);
+  const baseline = num(g(base + ".baseline"), 0);
+  const delta = num(g(base + ".delta"), 0);
+  const healthy = g(base + ".healthy") !== false;
+  const fault = Boolean(g(base + ".fault"));
+
   const level = sensorLevel(filtered);
+  const cardClass = fault ? "fault" : level.className;
 
   return `
-  <div class="sensor-card ${fault ? "danger" : level.className}">
+  <div class="sensor-card ${cardClass}">
     <div class="sensor-head">
       <strong>MQ-135 ${index}</strong>
-      <span class="${fault ? "danger" : level.className}">${fault ? "FAULT" : level.text}</span>
+      <span class="${level.className}">${fault ? "FAULT" : level.text}</span>
     </div>
     <div class="sensor-number">${Math.round(filtered)}</div>
-    <div class="sensor-detail">
-      <small>raw ${raw === null ? "--" : Math.round(raw)}</small>
-      <small>base ${baseline === null ? "--" : Math.round(baseline)}</small>
-      <small>Δ ${delta === null ? "--" : Math.round(delta)}</small>
-    </div>
+    <div class="sensor-delta">raw ${Math.round(raw)} · baseline ${Math.round(baseline)} · Δ${Math.round(delta)}</div>
     <div class="sensor-footer">
-      <small>ADC</small>
+      <small>filtered ADC</small>
       <small class="${healthy && !fault ? "ok" : "bad"}">${healthy && !fault ? "● HEALTHY" : "● FAULT"}</small>
     </div>
   </div>
@@ -562,8 +649,11 @@ function sensorCard(index) {
 }
 
 function renderSensors() {
+  renderMqStatus();
+
   let html = "";
   for (let i = 1; i <= SENSOR_COUNT; i++) html += sensorCard(i);
+
   const all = $("allSensors");
   const preview = $("sensorPreview");
   if (all) all.innerHTML = html;
@@ -577,17 +667,17 @@ function renderSensors() {
 function getZone(zone) {
   const base = `zones.zone${zone}`;
   return {
-    peak: num(get(state.status, `${base}.peak`, 0)),
-    average: num(get(state.status, `${base}.average`, 0)),
-    danger: Boolean(get(state.status, `${base}.danger`, false)),
-    warning: Boolean(get(state.status, `${base}.warning`, false))
+    peak: num(g(base + ".peak"), 0),
+    average: num(g(base + ".average"), 0),
+    danger: Boolean(g(base + ".danger")),
+    warning: Boolean(g(base + ".warning"))
   };
 }
 
 function zoneCard(zone) {
   const data = getZone(zone);
-  const status = data.danger ? "DANGER" : data.warning ? "WARNING" : "NORMAL";
   const levelClass = data.danger ? "danger" : data.warning ? "warning" : "";
+  const status = data.danger ? "DANGER" : data.warning ? "WARNING" : "NORMAL";
 
   return `
   <div class="zone-card ${levelClass}">
@@ -596,12 +686,12 @@ function zoneCard(zone) {
       <span class="${levelClass}">${status}</span>
     </div>
     <div class="zone-number">${Math.round(data.peak)}</div>
-    <small>Maximum gas ADC</small>
+    <small>Maximum gas ADC (filtered)</small>
     <div class="zone-sensors">
       ${ZONES[zone].map(id => `
         <div>
           <small>MQ-${id}</small>
-          <strong>${Math.round(num(get(state.status, `gas.sensor${id}.filtered`, 0)))}</strong>
+          <strong>${Math.round(num(g(`gas.sensor${id}.filtered`), 0))}</strong>
         </div>
       `).join("")}
     </div>
@@ -612,53 +702,85 @@ function zoneCard(zone) {
 
 function renderZones() {
   let html = "";
-  [1, 2, 3].forEach(z => { html += zoneCard(z); });
+  [1, 2, 3].forEach(zone => { html += zoneCard(zone); });
+
   const cards = $("zoneCards");
   const preview = $("zonePreview");
   if (cards) cards.innerHTML = html;
   if (preview) preview.innerHTML = html;
+
   updateZoneChart();
 }
 
 // ============================================================
-// CONTROLS (legacy unsigned fields)
+// AI & RISK
+// ============================================================
+
+function renderIntelligence() {
+  const aiEnabled = Boolean(g("ai.enabled"));
+  const aiFanRequest = Boolean(g("ai.fanRequest"));
+
+  setText("aiEnabledText", aiEnabled ? "YES" : "NO");
+  setText("aiFanRequestText", aiEnabled ? (aiFanRequest ? "YES" : "NO") : "--");
+  setText("aiConfidenceText", num(g("ai.confidence"), 0).toFixed(0) + "%");
+  setText("aiReasonText", g("ai.reason", "--") || "--");
+  setText("aiControlStatus", aiEnabled ? "ENABLED" : "DISABLED");
+
+  const riskScore = num(g("risk.score"), 0);
+  const riskLevel = g("risk.level", "LOW");
+
+  setText("riskScoreDetail", `${Math.round(riskScore)} / 100`);
+  setText("riskLevelDetail", riskLevel);
+  setText("riskReasonDetail", g("risk.reason", "--") || "--");
+  setText("riskHumidity", num(g("risk.humidity"), 0).toFixed(1));
+  setText("riskTemperature", num(g("risk.temperature"), 0).toFixed(1));
+  setText("riskGasTrend", num(g("risk.gasTrend"), 0).toFixed(1));
+
+  const levelEl = $("riskLevelDetail");
+  if (levelEl) {
+    levelEl.className =
+      riskLevel === "CRITICAL" || riskLevel === "HIGH" ? "danger-text" :
+      riskLevel === "MEDIUM" ? "warning-text" : "safe-text";
+  }
+}
+
+// ============================================================
+// CONTROLS
 // ============================================================
 
 function renderControls() {
   const c = state.control;
-  const s = state.status;
-
   const fan = Boolean(c.fan);
   const buzzer = Boolean(c.buzzer);
   const mode = String(c.mode || "AUTO").toUpperCase();
 
   setText("fanToggle", fan ? "FAN ON" : "FAN OFF");
   setText("buzzerToggle", buzzer ? "BUZZER ON" : "BUZZER OFF");
-  setText("actualFanState", get(s, "control.fan", false) ? "ON" : "OFF");
-  setText("activeFanReasonControl", get(s, "control.fanReason", "STANDBY"));
+  setText("actualFanState", g("control.fan") ? "ON" : "OFF");
+  setText("activeFanReasonControl", g("control.fanReason", "STANDBY"));
   setText("controlModeText", mode);
 
   $("autoMode")?.classList.toggle("active", mode === "AUTO");
   $("remoteMode")?.classList.toggle("active", mode === "REMOTE");
   $("maintenanceMode")?.classList.toggle("active", mode === "MAINTENANCE");
 
-  $("fanIndicator")?.classList.toggle("on", Boolean(get(s, "control.fan", false)));
-  $("buzzerIndicator")?.classList.toggle("on", Boolean(get(s, "control.buzzer", false)));
+  $("fanIndicator")?.classList.toggle("on", Boolean(g("control.fan")));
+  $("buzzerIndicator")?.classList.toggle("on", Boolean(g("control.buzzer")));
 
-  const emergency = Boolean(c.emergency);
-  setText("emergencyState", emergency ? "ACTIVE" : "CLEAR");
+  setText("emergencyState", c.emergency ? "ACTIVE" : "CLEAR");
   const emergencyEl = $("emergencyState");
-  if (emergencyEl) emergencyEl.className = emergency ? "danger-text" : "safe-text";
+  if (emergencyEl) emergencyEl.className = c.emergency ? "danger-text" : "safe-text";
+
+  setText("configRestoreStatus", g("diagnostics.configRestoreStatus", "NONE"));
 }
 
-// Unsigned write — fan/buzzer/mode/emergency, matching the
-// firmware's legacy read-only paths under /siloSystem/control.
-async function writeControlLegacy(values, button) {
+async function writeControl(values, button) {
   setBusy(button, true);
   try {
     await update(ref(db, "siloSystem/control"), values);
     toast("Command sent");
   } catch (error) {
+    console.error(error);
     toast(error.message, "error");
   } finally {
     setBusy(button, false);
@@ -666,141 +788,57 @@ async function writeControlLegacy(values, button) {
 }
 
 $("fanToggle")?.addEventListener("click", event => {
-  writeControlLegacy({ fan: !Boolean(state.control.fan), mode: "REMOTE" }, event.currentTarget);
+  writeControl({ fan: !Boolean(state.control.fan), mode: "REMOTE" }, event.currentTarget);
 });
+
 $("buzzerToggle")?.addEventListener("click", event => {
-  writeControlLegacy({ buzzer: !Boolean(state.control.buzzer), mode: "REMOTE" }, event.currentTarget);
+  writeControl({ buzzer: !Boolean(state.control.buzzer), mode: "REMOTE" }, event.currentTarget);
 });
-$("autoMode")?.addEventListener("click", event => writeControlLegacy({ mode: "AUTO" }, event.currentTarget));
-$("remoteMode")?.addEventListener("click", event => writeControlLegacy({ mode: "REMOTE" }, event.currentTarget));
-$("maintenanceMode")?.addEventListener("click", event => {
-  if (!confirm("Switch to MAINTENANCE mode? The fan will be forced off regardless of sensors.")) return;
-  writeControlLegacy({ mode: "MAINTENANCE" }, event.currentTarget);
-});
+
+$("autoMode")?.addEventListener("click", event => writeControl({ mode: "AUTO" }, event.currentTarget));
+$("remoteMode")?.addEventListener("click", event => writeControl({ mode: "REMOTE" }, event.currentTarget));
+$("maintenanceMode")?.addEventListener("click", event => writeControl({ mode: "MAINTENANCE" }, event.currentTarget));
 
 $("emergencyBtn")?.addEventListener("click", event => {
   if (!confirm("Activate emergency?")) return;
-  writeControlLegacy({ emergency: true, fan: true, buzzer: true, mode: "REMOTE" }, event.currentTarget);
+  writeControl({ emergency: true, fan: true, buzzer: true, mode: "REMOTE" }, event.currentTarget);
 });
+
 $("resetEmergency")?.addEventListener("click", event => {
   if (!confirm("Reset emergency?")) return;
-  writeControlLegacy({ emergency: false, fan: false, buzzer: false, mode: "AUTO" }, event.currentTarget);
+  writeControl({ emergency: false, fan: false, buzzer: false, mode: "AUTO" }, event.currentTarget);
 });
 
-// ============================================================
-// HMAC SIGNING
-//
-// hmacSecret lives only in memory for this tab — set via the
-// Settings page, never written to Firebase, cleared on reload.
-// Canonical string must byte-for-byte match the firmware's:
-//   commandId|commandAt(seconds)|target|command|payload
-// ============================================================
-
-function randomCommandId() {
-  const bytes = new Uint8Array(12);
-  crypto.getRandomValues(bytes);
-  return Array.from(bytes).map(b => b.toString(16).padStart(2, "0")).join("");
-}
-
-async function hmacSha256Hex(secret, message) {
-  const enc = new TextEncoder();
-  const key = await crypto.subtle.importKey(
-    "raw", enc.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]
-  );
-  const sigBuf = await crypto.subtle.sign("HMAC", key, enc.encode(message));
-  return Array.from(new Uint8Array(sigBuf)).map(b => b.toString(16).padStart(2, "0")).join("");
-}
-
-async function sendSignedCommand(command, payload, button) {
-  if (!hmacSecret) {
-    toast("Set the HMAC secret on Settings first", "error");
-    return false;
-  }
-
-  setBusy(button, true);
-  try {
-    const commandId = randomCommandId();
-    const commandAt = Math.floor(Date.now() / 1000);
-    const target = DEVICE_ID;
-    const canonical = `${commandId}|${commandAt}|${target}|${command}|${payload}`;
-    const signature = await hmacSha256Hex(hmacSecret, canonical);
-
-    await update(ref(db, "siloSystem/control/command"), {
-      commandId, targetDevice: target, command, payload, signature, timestamp: commandAt
-    });
-
-    toast(`${command} command signed and sent`);
-    return true;
-  } catch (error) {
-    console.error(error);
-    toast(error.message || "Signing failed", "error");
-    return false;
-  } finally {
-    setBusy(button, false);
-  }
-}
-
-// ============================================================
-// SETTINGS: HMAC SECRET
-// ============================================================
-
-$("saveSecret")?.addEventListener("click", () => {
-  const value = $("hmacSecretInput")?.value.trim() || "";
-  hmacSecret = value;
-  setText("secretStatus", value ? "Secret set for this session (not saved anywhere)." : "No secret set this session.");
-  if ($("hmacSecretInput")) $("hmacSecretInput").value = "";
-  toast(value ? "Secret loaded for this session" : "Secret cleared");
-});
-
-// ============================================================
-// AI ENABLE/DISABLE (signed)
-// ============================================================
-
-$("aiEnableBtn")?.addEventListener("click", event => sendSignedCommand("AI", "ON", event.currentTarget));
-$("aiDisableBtn")?.addEventListener("click", event => sendSignedCommand("AI", "OFF", event.currentTarget));
-
-// ============================================================
-// REBOOT (signed)
-// ============================================================
+// ---- Signed commands ----
 
 $("rebootBtn")?.addEventListener("click", event => {
-  if (!confirm("Restart the ESP32? It will be offline for a few seconds. This is refused automatically if a firmware update is in progress.")) return;
+  if (!confirm("Restart the ESP32? It will be offline for a few seconds. Refused if a firmware update is in progress.")) return;
   sendSignedCommand("REBOOT", "", event.currentTarget);
 });
 
-// ============================================================
-// SENSOR MAINTENANCE (unsigned settings triggers)
-// ============================================================
-
-$("calibrateMqBtn")?.addEventListener("click", async event => {
-  if (!confirm("Recalibrate MQ baselines now? Make sure the silo air is clean/onion-free.")) return;
-  setBusy(event.currentTarget, true);
-  try {
-    await update(ref(db, "siloSystem/settings"), { calibrateMQ: true });
-    toast("Calibration requested");
-  } catch (error) {
-    toast(error.message, "error");
-  } finally {
-    setBusy(event.currentTarget, false);
-  }
+$("aiToggleBtn")?.addEventListener("click", event => {
+  const next = Boolean(g("ai.enabled")) ? "OFF" : "ON";
+  sendSignedCommand("AI", next, event.currentTarget);
 });
 
-$("restoreConfigBtn")?.addEventListener("click", async event => {
-  if (!confirm("Restore configuration from the last cloud backup?")) return;
-  setBusy(event.currentTarget, true);
-  try {
-    await update(ref(db, "siloSystem/settings"), { restoreConfig: true });
-    toast("Config restore requested");
-  } catch (error) {
-    toast(error.message, "error");
-  } finally {
-    setBusy(event.currentTarget, false);
-  }
+$("calibrateMqBtn")?.addEventListener("click", event => {
+  if (!confirm("Recalibrate all 9 MQ sensors? Requires warmup complete and no active gas alarm.")) return;
+  sendSignedCommand("CALIBRATE_MQ", "", event.currentTarget);
 });
+
+$("restoreConfigBtn")?.addEventListener("click", event => {
+  if (!confirm("Restore thresholds and battery offset from the last cloud backup?")) return;
+  sendSignedCommand("RESTORE_CONFIG", "", event.currentTarget);
+});
+
+// ---- Battery calibration (unsigned settings path) ----
 
 $("calibrateBatteryBtn")?.addEventListener("click", async event => {
   const ref_ = num($("batteryRefInput")?.value, -1);
-  if (ref_ < 6 || ref_ > 15) { toast("Enter a realistic voltage (6-15V)", "error"); return; }
+  if (ref_ < 6 || ref_ > 15) {
+    toast("Enter a realistic pack voltage (6–15V)", "error");
+    return;
+  }
 
   setBusy(event.currentTarget, true);
   try {
@@ -817,21 +855,26 @@ $("calibrateBatteryBtn")?.addEventListener("click", async event => {
 });
 
 // ============================================================
-// SETTINGS INPUTS
+// SETTINGS (thresholds)
 // ============================================================
 
-function renderSettingsInputs() {
+function renderSettings() {
   const gasInput = $("gasThresholdInput");
   const warnInput = $("warningThresholdInput");
-  if (gasInput && document.activeElement !== gasInput) gasInput.value = num(state.settings.gasThreshold, 2000);
-  if (warnInput && document.activeElement !== warnInput) warnInput.value = num(state.settings.warningThreshold, 1500);
-  setText("configRestoreStatus", get(state.status, "diagnostics.configRestoreStatus", "NONE"));
+  if (gasInput && document.activeElement !== gasInput) {
+    gasInput.value = num(state.settings.gasThreshold, 2000);
+  }
+  if (warnInput && document.activeElement !== warnInput) {
+    warnInput.value = num(state.settings.warningThreshold, 1500);
+  }
 }
 
-async function saveThresholdField(inputId, dbKey, label, button) {
+async function saveThresholdField(inputId, dbKey, label, min, max, button) {
   const value = num($(inputId)?.value, -1);
-  if (value < 0 || value > 4095) { toast("Invalid threshold", "error"); return; }
-
+  if (value < min || value > max) {
+    toast(`Value must be between ${min} and ${max}`, "error");
+    return;
+  }
   setBusy(button, true);
   try {
     await update(ref(db, "siloSystem/settings"), { [dbKey]: value });
@@ -843,38 +886,43 @@ async function saveThresholdField(inputId, dbKey, label, button) {
   }
 }
 
-$("saveThreshold")?.addEventListener("click", event =>
-  saveThresholdField("gasThresholdInput", "gasThreshold", "Danger threshold", event.currentTarget));
-$("saveWarning")?.addEventListener("click", event =>
-  saveThresholdField("warningThresholdInput", "warningThreshold", "Warning threshold", event.currentTarget));
+$("saveThreshold")?.addEventListener("click", event => {
+  saveThresholdField("gasThresholdInput", "gasThreshold", "Danger threshold", 100, 4095, event.currentTarget);
+});
+
+$("saveWarning")?.addEventListener("click", event => {
+  saveThresholdField("warningThresholdInput", "warningThreshold", "Warning threshold", 50, 4095, event.currentTarget);
+});
 
 // ============================================================
 // DIAGNOSTICS
 // ============================================================
 
 function renderDiagnostics() {
-  const s = state.status;
+  setText("diagFirebase", g("diagnostics.firebaseHealthy") === false ? "FAULT" : "OK");
+  setText("diagWiFi", g("diagnostics.wifiHealthy") === false ? "FAULT" : "OK");
+  setText("diagDhtInt", g("climate.internalHealthy") === false ? "FAULT" : "OK");
+  setText("diagDhtExt", g("climate.externalHealthy") === false ? "FAULT" : "OK");
+  setText("diagDhtSafety", g("climate.dhtSafetyFault") ? "FAULT" : "OK");
+  setText("diagFan", g("diagnostics.fanFeedbackFault") ? "FAULT" : "OK");
+  setText("diagFanFailures", g("diagnostics.fanFeedbackFailures", 0));
+  setText("diagHeartbeat", formatTime(state.status.timestamp));
 
-  setText("diagFirebase", get(s, "diagnostics.firebaseHealthy", false) ? "OK" : "FAULT");
-  setText("diagWiFi", get(s, "diagnostics.wifiHealthy", false) ? "OK" : "FAULT");
-  setText("diagDhtFault", get(s, "climate.dhtSafetyFault", false) ? "FAULT" : "OK");
-  setText("diagFanFault", get(s, "diagnostics.fanFeedbackFault", false) ? "FAULT" : "OK");
-  setText("diagFreeHeap", formatBytes(get(s, "diagnostics.freeHeap", null)));
-  setText("diagMinHeap", formatBytes(get(s, "diagnostics.minFreeHeap", null)));
-  setText("diagResetReason", get(s, "diagnostics.resetReason", "--"));
-  setText("diagBootCount", get(s, "diagnostics.bootCount", "--"));
+  setText("diagResetReason", g("diagnostics.resetReason", "--"));
+  setText("diagBootCount", g("diagnostics.bootCount", "--"));
+  setText("diagFreeHeap", formatBytes(g("diagnostics.freeHeap")));
+  setText("diagMinHeap", formatBytes(g("diagnostics.minFreeHeap")));
+  setText("diagRollbackSupported", g("diagnostics.otaRollbackSupported") ? "YES" : "NO");
+  setText("diagRollbackPending", g("diagnostics.otaRollbackPending") ? "YES — awaiting validation" : "NO");
+  setText("diagOfflineEvents", g("diagnostics.offlineEvents", 0));
+  setText("diagRecoveredEvents", g("diagnostics.recoveredEvents", 0));
 
-  const rollbackSupported = get(s, "diagnostics.otaRollbackSupported", false);
-  const rollbackPending = get(s, "diagnostics.otaRollbackPending", false);
-  setText("diagRollback", !rollbackSupported ? "UNSUPPORTED" : rollbackPending ? "PENDING VALIDATION" : "VALIDATED");
-
-  const offline = get(s, "diagnostics.offlineEvents", 0);
-  const recovered = get(s, "diagnostics.recoveredEvents", 0);
-  setText("diagEventCounts", `${offline} queued / ${recovered} recovered`);
+  const rollbackEl = $("diagRollbackPending");
+  if (rollbackEl) rollbackEl.className = g("diagnostics.otaRollbackPending") ? "warning-text" : "safe-text";
 
   let html = "";
   for (let i = 1; i <= SENSOR_COUNT; i++) {
-    const fault = get(s, `gas.sensor${i}.fault`, false);
+    const fault = Boolean(g(`gas.sensor${i}.fault`));
     html += `
       <div class="diag-row">
         <span>MQ-135 ${i}</span>
@@ -887,34 +935,9 @@ function renderDiagnostics() {
 }
 
 function formatBytes(value) {
-  if (value === null || value === undefined) return "--";
-  return (num(value) / 1024).toFixed(0) + " KB";
-}
-
-// ============================================================
-// EVENTS FEED
-// ============================================================
-
-function renderEvents() {
-  const el = $("eventsFeed");
-  if (!el) return;
-
-  const entries = Object.values(state.events || {})
-    .sort((a, b) => num(b.timestamp, 0) - num(a.timestamp, 0))
-    .slice(0, 20);
-
-  if (!entries.length) {
-    el.innerHTML = "No events yet.";
-    return;
-  }
-
-  el.innerHTML = entries.map(e => `
-    <div class="event-item">
-      <strong>${e.type || "EVENT"}</strong>
-      <span>${e.message || ""}</span>
-      <small>${formatTime(e.timestamp)} — gas ${num(e.gas, 0)}${e.zone > 0 ? `, zone ${e.zone}` : ""}</small>
-    </div>
-  `).join("");
+  const n = num(value, -1);
+  if (n < 0) return "--";
+  return (n / 1024).toFixed(1) + " KB";
 }
 
 // ============================================================
@@ -922,9 +945,7 @@ function renderEvents() {
 // ============================================================
 
 function historyRows() {
-  return Object.entries(state.history || {})
-    .sort(([a], [b]) => Number(b) - Number(a))
-    .slice(0, 500);
+  return Object.entries(state.history || {}).sort(([a], [b]) => Number(b) - Number(a)).slice(0, 500);
 }
 
 function renderHistory() {
@@ -948,7 +969,7 @@ function renderHistory() {
         <td>${num(x.zone, -1) > 0 ? "Zone " + x.zone : "None"}</td>
         <td>${Math.round(max)}</td>
         <td>${Math.round(num(x.averageGas, 0))}</td>
-        <td>${trend > 0 ? "+" : ""}${trend.toFixed(0)}</td>
+        <td>${(trend >= 0 ? "+" : "") + trend.toFixed(0)}</td>
         <td>${num(x.temperature, 0).toFixed(1)}°C</td>
         <td>${num(x.humidity, 0).toFixed(1)}%</td>
         <td>${num(x.battery, 0).toFixed(2)}V</td>
@@ -974,16 +995,57 @@ $("clearHistory")?.addEventListener("click", async event => {
 });
 
 // ============================================================
+// EVENTS & NOTIFICATIONS
+// ============================================================
+
+function renderEvents() {
+  const events = Object.values(state.events || {}).map(e => ({ ...e, kind: "event" }));
+  const notifications = Object.values(state.notifications || {}).map(n => ({ ...n, kind: "notification" }));
+
+  const combined = [...events, ...notifications]
+    .sort((a, b) => num(b.timestamp, 0) - num(a.timestamp, 0))
+    .slice(0, 60);
+
+  setText("eventsCount", `${combined.length} recent`);
+
+  const el = $("eventsList");
+  if (!el) return;
+
+  if (!combined.length) {
+    el.innerHTML = "No events yet.";
+    return;
+  }
+
+  el.innerHTML = combined.map(item => {
+    const severity = (item.severity || (item.kind === "event" ? "INFO" : "INFO")).toLowerCase();
+    const cssClass = severity === "critical" ? "critical" : severity === "warning" ? "warning" : "";
+    const label = item.kind === "notification" ? (item.severity || "INFO") : (item.type || "EVENT");
+
+    return `
+      <div class="event-item ${cssClass}">
+        <strong>${label}</strong>
+        <span>${item.message || ""}</span>
+        <small>${formatTime(item.timestamp)}</small>
+      </div>
+    `;
+  }).join("");
+}
+
+// ============================================================
 // CHARTS
 // ============================================================
 
 function createChart(id, type, labels, datasets) {
   const canvas = $(id);
   if (!canvas || typeof Chart === "undefined") return null;
+
   return new Chart(canvas, {
-    type, data: { labels, datasets },
+    type,
+    data: { labels, datasets },
     options: {
-      responsive: true, maintainAspectRatio: false, animation: false,
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: false,
       plugins: { legend: { labels: { color: "#8492a3", font: { size: 10 } } } },
       scales: {
         x: { ticks: { color: "#8492a3", font: { size: 9 } }, grid: { color: "#1c2733" } },
@@ -998,20 +1060,29 @@ function initCharts() {
     { label: "Maximum Gas", data: [], tension: 0.3, pointRadius: 1, borderColor: "#ff5362", backgroundColor: "rgba(255,83,98,.15)" },
     { label: "Average Gas", data: [], tension: 0.3, pointRadius: 1, borderColor: "#438cff", backgroundColor: "rgba(67,140,255,.15)" }
   ]);
+
   zoneChart = createChart("zoneChart", "bar", ["Zone 1", "Zone 2", "Zone 3"], [
     { label: "Peak Gas", data: [0, 0, 0], backgroundColor: "#438cff" }
   ]);
+
   gasHistoryChart = createChart("gasHistoryChart", "line", [], [
     { label: "Maximum Gas", data: [], tension: 0.3, borderColor: "#ff5362", backgroundColor: "rgba(255,83,98,.15)" }
   ]);
+
   temperatureChart = createChart("temperatureChart", "line", [], [
     { label: "Temperature", data: [], tension: 0.3, borderColor: "#f4c04f", backgroundColor: "rgba(244,192,79,.15)" }
   ]);
+
   humidityChart = createChart("humidityChart", "line", [], [
     { label: "Humidity", data: [], tension: 0.3, borderColor: "#438cff", backgroundColor: "rgba(67,140,255,.15)" }
   ]);
+
   batteryChart = createChart("batteryChart", "line", [], [
     { label: "Battery", data: [], tension: 0.3, borderColor: "#2bd48a", backgroundColor: "rgba(43,212,138,.15)" }
+  ]);
+
+  riskChart = createChart("riskChart", "line", [], [
+    { label: "Storage Risk Score", data: [], tension: 0.3, borderColor: "#f4c04f", backgroundColor: "rgba(244,192,79,.15)" }
   ]);
 }
 
@@ -1019,7 +1090,8 @@ let lastLiveTimestamp = 0;
 
 function updateLiveChart() {
   if (!liveGasChart) return;
-  const timestamp = num(get(state.status, "timestamp", Date.now()));
+
+  const timestamp = num(state.status.timestamp, Date.now());
   if (timestamp === lastLiveTimestamp) return;
   lastLiveTimestamp = timestamp;
 
@@ -1028,10 +1100,11 @@ function updateLiveChart() {
   const avg = liveGasChart.data.datasets[1].data;
 
   labels.push(formatClock(timestamp));
-  max.push(num(get(state.status, "gas.max", 0)));
-  avg.push(num(get(state.status, "gas.average", 0)));
+  max.push(num(g("gas.max"), 0));
+  avg.push(num(g("gas.average"), 0));
 
   while (labels.length > 40) { labels.shift(); max.shift(); avg.shift(); }
+
   liveGasChart.update("none");
 }
 
@@ -1044,10 +1117,12 @@ function updateZoneChart() {
 function updateHistoryCharts() {
   const rows = historyRows().reverse();
   const labels = rows.map(([timestamp]) => formatClock(timestamp));
+
   updateChart(gasHistoryChart, labels, rows.map(([, x]) => num(x.maxGas, 0)));
   updateChart(temperatureChart, labels, rows.map(([, x]) => num(x.temperature, 0)));
   updateChart(humidityChart, labels, rows.map(([, x]) => num(x.humidity, 0)));
   updateChart(batteryChart, labels, rows.map(([, x]) => num(x.battery, 0)));
+  updateChart(riskChart, labels, rows.map(([, x]) => num(x.storageRiskScore, 0)));
 }
 
 function updateChart(chart, labels, data) {
@@ -1058,70 +1133,68 @@ function updateChart(chart, labels, data) {
 }
 
 // ============================================================
-// FIRMWARE OTA
-//
-// No more "latest" staging node — device.state/progress/error and
-// history are the only device-side firmware nodes now. History
-// entries are pushed (Firebase auto-IDs), so they carry their own
-// timestamp field rather than being keyed by one.
+// FIRMWARE / OTA
 // ============================================================
 
-function getFirmwareDevice() {
-  return state.firmware.device || {};
-}
+function getFirmwareDevice() { return state.firmware.device || {}; }
+function getFirmwareCommand() { return state.firmware.command || {}; }
 
 function renderFirmware() {
   const device = getFirmwareDevice();
-  const s = state.status;
+  const command = getFirmwareCommand();
 
-  setText("otaDeviceId", s.deviceId || DEVICE_ID);
-  setText("otaCurrentVersion", s.firmwareVersion || "--");
-  setText("otaCurrentBuild", s.firmwareBuild || "--");
-  setText("otaCurrentHardware", s.hardwareVersion || "--");
+  setText("otaDeviceId", device.deviceId || state.status.deviceId || DEVICE_ID);
+  setText("otaCurrentVersion", device.firmwareVersion || state.status.firmwareVersion || "--");
+  setText("otaCurrentBuild", device.firmwareBuild ?? state.status.firmwareBuild ?? "--");
+  setText("otaCurrentHardware", device.hardwareVersion || state.status.hardwareVersion || "--");
   setText("otaState", device.state || "IDLE");
   setText("otaProgressText", num(device.progress, 0) + "%");
+  setText("otaRollbackPendingText", g("diagnostics.otaRollbackPending") ? "YES — pending validation" : "NO");
 
   const deviceState = device.state || "IDLE";
   const liveStates = ["CONNECTING", "DOWNLOADING", "INSTALLING"];
   const otaInProgress = liveStates.includes(deviceState);
 
-  const deployBtn = $("deployFirmware");
-  if (deployBtn) deployBtn.disabled = otaInProgress;
+  const gas = Boolean(g("gas.detected"));
+  const emergency = Boolean(state.control.emergency);
+  const blocked = gas || emergency;
+
+  const deployBtn = $("deploySignedFirmware");
+  if (deployBtn) deployBtn.disabled = blocked || otaInProgress;
 
   const otaBadge = $("otaBadge");
-  if (otaBadge) {
-    if (otaInProgress) {
-      otaBadge.textContent = deviceState;
-      otaBadge.className = "badge warning";
-    } else if (deviceState === "FAILED" || deviceState === "REJECTED") {
-      otaBadge.textContent = deviceState;
-      otaBadge.className = "badge danger";
-    } else if (deviceState === "SUCCESS") {
-      otaBadge.textContent = "OTA READY";
-      otaBadge.className = "badge safe";
-    } else {
-      otaBadge.textContent = "OTA READY";
-      otaBadge.className = "badge safe";
-    }
+
+  if (otaInProgress) {
+    if (otaBadge) { otaBadge.textContent = deviceState; otaBadge.className = "badge warning"; }
+  } else if (deviceState === "FAILED" || deviceState === "REJECTED") {
+    if (otaBadge) { otaBadge.textContent = deviceState; otaBadge.className = "badge danger"; }
+  } else if (blocked) {
+    if (otaBadge) { otaBadge.textContent = "OTA BLOCKED"; otaBadge.className = "badge danger"; }
+  } else {
+    if (otaBadge) { otaBadge.textContent = "OTA READY"; otaBadge.className = "badge safe"; }
   }
 
   renderFirmwareHistory();
 }
 
 function renderFirmwareHistory() {
-  const history = state.firmware.history || {};
-  const entries = Object.values(history)
+  // v5 pushes history entries (auto-generated keys), so sort by
+  // each entry's own timestamp field rather than its key.
+  const history = Object.values(state.firmware.history || {})
     .sort((a, b) => num(b.timestamp, 0) - num(a.timestamp, 0))
     .slice(0, 20);
 
   const el = $("firmwareHistory");
   if (!el) return;
 
-  if (!entries.length) { el.innerHTML = "No firmware releases."; return; }
+  if (!history.length) {
+    el.innerHTML = "No firmware releases.";
+    return;
+  }
 
-  el.innerHTML = entries.map(x => `
+  el.innerHTML = history.map(x => `
     <div class="firmware-history-item">
-      <strong>${x.state || "--"} — v${x.firmwareVersion || "--"}</strong>
+      <strong>${x.state || "--"} · v${x.firmwareVersion || "--"}</strong>
       <span>${x.error || "No error"}</span>
       <small>${formatTime(x.timestamp)}</small>
     </div>
@@ -1149,18 +1222,23 @@ $("firmwareFile")?.addEventListener("change", async event => {
     if (hashDisplay) hashDisplay.textContent = "--";
     return;
   }
+
   if (!file.name.toLowerCase().endsWith(".bin")) {
     toast("Only .bin files allowed", "error");
     event.currentTarget.value = "";
+    if (hashStatus) hashStatus.textContent = "No file selected.";
     return;
   }
 
   if (hashStatus) hashStatus.textContent = "Calculating SHA-256...";
+
   try {
     const buffer = await file.arrayBuffer();
     const sha256 = await calculateSHA256(buffer);
+
     pendingFirmwareHash = sha256;
     pendingFirmwareSize = file.size;
+
     if (hashDisplay) hashDisplay.textContent = sha256;
     if (hashStatus) hashStatus.textContent = `${file.name} — ${(file.size / 1024).toFixed(1)} KB.`;
   } catch (error) {
@@ -1170,10 +1248,7 @@ $("firmwareFile")?.addEventListener("change", async event => {
   }
 });
 
-// The OTA manifest canonical string is DIFFERENT from the plain
-// command envelope — it must match validateOTAManifest() exactly:
-//   commandId|commandAt|DEVICE_ID|OTA|url|version|build|hash|fileSize
-$("deployFirmware")?.addEventListener("click", async event => {
+$("deploySignedFirmware")?.addEventListener("click", async event => {
   const button = event.currentTarget;
   const url = $("firmwareUrlInput")?.value.trim() || "";
   const version = $("firmwareVersionInput")?.value.trim() || "";
@@ -1181,26 +1256,37 @@ $("deployFirmware")?.addEventListener("click", async event => {
   const hardware = $("firmwareHardwareInput")?.value.trim() || "";
   const statusEl = $("uploadStatus");
 
-  if (!hmacSecret) { toast("Set the HMAC secret on Settings first", "error"); return; }
-  if (!url || !/^https:\/\//i.test(url)) { toast("Paste a valid https:// GitHub Release asset URL", "error"); return; }
+  if (!hmacSecret) {
+    toast("Enter the HMAC secret on the Controls page first", "error");
+    return;
+  }
+  if (!url || !/^https:\/\/(github\.com|objects\.githubusercontent\.com|release-assets\.githubusercontent\.com)\//i.test(url)) {
+    toast("URL must be an https:// github.com or githubusercontent.com link", "error");
+    return;
+  }
   if (!version) { toast("Enter firmware version", "error"); return; }
   if (build <= 0) { toast("Enter valid build", "error"); return; }
   if (!hardware) { toast("Enter hardware version", "error"); return; }
-  if (!pendingFirmwareHash) { toast("Select the .bin locally first so its hash can be signed", "error"); return; }
+  if (!pendingFirmwareHash) { toast("Select the .bin locally first so its hash can be computed", "error"); return; }
 
   const currentBuild = num(state.status.firmwareBuild, 0);
   if (build <= currentBuild) { toast(`Build must be greater than ${currentBuild}`, "error"); return; }
-
-  if (!confirm(`Deploy v${version} build ${build} to ${DEVICE_ID}? This is signed and cannot be recalled once the device picks it up.`)) return;
 
   setBusy(button, true);
   if (statusEl) statusEl.textContent = "Signing manifest...";
 
   try {
-    const commandId = randomCommandId();
+    const commandId = newCommandId();
     const commandAt = Math.floor(Date.now() / 1000);
-    const canonical = `${commandId}|${commandAt}|${DEVICE_ID}|OTA|${url}|${version}|${build}|${pendingFirmwareHash}|${pendingFirmwareSize}`;
+
+    // Must match validateOTAManifest()'s canonical form exactly:
+    // commandId|commandAt|DEVICE_ID|OTA|url|version|build|hash|fileSize
+    const canonical =
+      `${commandId}|${commandAt}|${DEVICE_ID}|OTA|${url}|${version}|${build}|${pendingFirmwareHash}|${pendingFirmwareSize}`;
+
     const signature = await hmacSha256Hex(hmacSecret, canonical);
+
+    if (statusEl) statusEl.textContent = "Sending signed manifest to device...";
 
     await update(ref(db, "siloSystem/firmware/command"), {
       commandId,
@@ -1215,8 +1301,8 @@ $("deployFirmware")?.addEventListener("click", async event => {
       timestamp: commandAt
     });
 
-    if (statusEl) statusEl.textContent = "Signed manifest sent. Watch the OTA state above.";
-    toast("Deploy signed and sent");
+    if (statusEl) statusEl.textContent = "Manifest sent. Watch OTA State above.";
+    toast("Signed OTA manifest sent");
   } catch (error) {
     console.error("OTA deploy:", error);
     if (statusEl) statusEl.textContent = "Deploy failed.";
@@ -1236,18 +1322,8 @@ function updateClock() {
 setInterval(updateClock, 1000);
 updateClock();
 
-// Diagnostics/events don't have their own onValue-triggered render
-// hooked to status updates elsewhere, so refresh them on the same
-// cadence as the rest of the status tree.
-const _origRenderAll = renderAll;
-renderAll = function patchedRenderAll() {
-  _origRenderAll();
-  renderDiagnostics();
-};
-
 // ============================================================
-// CHART INIT — safe to call directly; type="module" defers
-// execution until after the document has been parsed.
+// CHART INIT
 // ============================================================
 
 initCharts();
