@@ -2,18 +2,17 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <meta name="theme-color" content="#081018">
-<meta name="description" content="SILO GUARD — real-time smart onion storage monitoring, gas safety, ventilation control and firmware OTA management.">
+<meta name="description" content="SILO GUARD — smart onion storage monitoring dashboard">
 <title>SILO GUARD</title>
 
-<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><rect width=%22100%22 height=%22100%22 rx=%2220%22 fill=%22%23438cff%22/><text x=%2250%22 y=%2268%22 font-size=%2260%22 text-anchor=%22middle%22 fill=%22white%22 font-family=%22Arial%22>SG</text></svg>">
-
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
 
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
 </head>
 
@@ -26,42 +25,51 @@
     <h1>SILO GUARD</h1>
     <p>Smart Onion Storage Monitoring System</p>
 
-    <form id="loginForm" autocomplete="on">
-      <label>Email
-        <input id="email" type="email" placeholder="Firebase email" autocomplete="email" required>
+    <form id="loginForm" novalidate>
+      <label>
+        Email
+        <input id="email" type="email" placeholder="Firebase email" autocomplete="username" required>
       </label>
-      <label>Password
+      <label>
+        Password
         <input id="password" type="password" placeholder="Password" autocomplete="current-password" required>
       </label>
-      <button type="submit" id="loginSubmitBtn" class="primary-btn full">SIGN IN</button>
+      <button type="submit" id="loginSubmit" class="primary-btn">
+        <span class="btn-label">SIGN IN</span>
+      </button>
       <div id="loginError" class="error" role="alert" aria-live="polite"></div>
     </form>
   </div>
 </div>
 
-<!-- APP -->
+<!-- APPLICATION -->
 <div id="app" class="app hidden">
 
-<aside class="sidebar">
+<button id="menuToggle" class="menu-toggle" aria-label="Toggle menu" aria-expanded="false">
+  <span></span><span></span><span></span>
+</button>
+
+<aside class="sidebar" id="sidebar">
   <div class="brand">
     <div class="logo small">SG</div>
     <div>
       <strong>SILO GUARD</strong>
       <small>Smart Storage System</small>
     </div>
-    <button id="mobileLogout" class="mobile-logout-btn" aria-label="Logout" type="button">⏻</button>
   </div>
 
   <nav>
-    <button class="nav-btn active" data-page="dashboard">Dashboard</button>
-    <button class="nav-btn" data-page="zones">3-Zone Monitor</button>
-    <button class="nav-btn" data-page="sensors">Gas Sensors</button>
-    <button class="nav-btn" data-page="analytics">Analytics</button>
-    <button class="nav-btn" data-page="control">Controls</button>
-    <button class="nav-btn" data-page="history">History</button>
-    <button class="nav-btn" data-page="settings">Settings</button>
-    <button class="nav-btn" data-page="diagnostics">Diagnostics</button>
-    <button class="nav-btn" data-page="firmware">Firmware OTA</button>
+    <button class="nav-btn active" data-page="dashboard" type="button">Dashboard</button>
+    <button class="nav-btn" data-page="zones" type="button">3-Zone Monitor</button>
+    <button class="nav-btn" data-page="sensors" type="button">Gas Sensors</button>
+    <button class="nav-btn" data-page="intelligence" type="button">AI &amp; Risk</button>
+    <button class="nav-btn" data-page="analytics" type="button">Analytics</button>
+    <button class="nav-btn" data-page="control" type="button">Controls</button>
+    <button class="nav-btn" data-page="history" type="button">History</button>
+    <button class="nav-btn" data-page="events" type="button">Events</button>
+    <button class="nav-btn" data-page="settings" type="button">Settings</button>
+    <button class="nav-btn" data-page="diagnostics" type="button">Diagnostics</button>
+    <button class="nav-btn" data-page="firmware" type="button">Firmware OTA</button>
   </nav>
 
   <div class="sidebar-bottom">
@@ -76,6 +84,8 @@
   </div>
 </aside>
 
+<div id="sidebarOverlay" class="sidebar-overlay hidden"></div>
+
 <main class="main">
 
 <header class="topbar">
@@ -89,11 +99,19 @@
   </div>
 </header>
 
-<div id="dangerAlert" class="danger-alert hidden" role="alert" aria-live="assertive">
+<div id="dangerAlert" class="danger-alert hidden" role="alert">
   <div class="danger-icon">!</div>
   <div>
     <strong>GAS SAFETY ALERT</strong>
     <p id="dangerMessage">Gas danger detected.</p>
+  </div>
+</div>
+
+<div id="safetyFaultAlert" class="danger-alert warning-alert hidden" role="alert">
+  <div class="danger-icon">i</div>
+  <div>
+    <strong id="safetyFaultTitle">SENSOR SAFETY OVERRIDE</strong>
+    <p id="safetyFaultMessage">A sensor fault is forcing the fan on as a precaution.</p>
   </div>
 </div>
 
@@ -111,7 +129,7 @@
   <div class="stat-card">
     <span>Average Gas</span>
     <strong id="averageGas">0</strong>
-    <small>9 MQ-135 sensors</small>
+    <small><span id="gasTrendText">trend --/min</span></small>
   </div>
 
   <div class="stat-card">
@@ -122,9 +140,9 @@
   </div>
 
   <div class="stat-card">
-    <span>Ventilation</span>
-    <strong id="fanStatus">STANDBY</strong>
-    <small>Reason: <b id="activeReason">STANDBY</b></small>
+    <span>Storage Risk</span>
+    <strong id="riskScore">0</strong>
+    <small id="riskLevel">LOW</small>
   </div>
 </div>
 
@@ -133,52 +151,56 @@
 </div>
 
 <div class="overview-grid">
-  <div class="panel">
-    <div class="kv"><span>Connection</span><b id="onlineCard">OFFLINE</b></div>
-    <div class="kv"><span>Gas State</span><b id="gasState">NORMAL</b></div>
-    <div class="kv"><span>Fill Status</span><b id="fillStatus">0% (EMPTY)</b></div>
-    <div class="kv"><span>Active Zone</span><b id="activeZone">None</b></div>
-    <div class="kv"><span>Rotation</span><b id="rotAngle">0°</b></div>
-    <div class="kv"><span>Vector</span><b id="vectorMagnitude">0</b></div>
-    <div class="kv"><span>Manual Override</span><b id="manualOverride">OFF</b></div>
+
+<div class="panel">
+  <div class="kv"><span>Connection</span><b id="onlineCard">OFFLINE</b></div>
+  <div class="kv"><span>Gas State</span><b id="gasState">NORMAL</b></div>
+  <div class="kv"><span>Fill Status</span><b id="fillStatus">0% (EMPTY)</b></div>
+  <div class="kv"><span>Active Zone</span><b id="activeZone">None</b></div>
+  <div class="kv"><span>Rotation</span><b id="rotAngle">0°</b></div>
+  <div class="kv"><span>Localization Confidence</span><b id="localizationConfidence">0%</b></div>
+  <div class="kv"><span>Manual Override</span><b id="manualOverride">OFF</b></div>
+  <div class="kv"><span>Ventilation</span><b id="fanStatus">STANDBY</b></div>
+  <div class="kv"><span>Fan Reason</span><b id="activeReason">STANDBY</b></div>
+</div>
+
+<div class="panel">
+  <h3>Curing</h3>
+  <div class="curing-header">
+    <strong id="curingStatus">HARVEST DATE NOT SET</strong>
+    <span id="curingDay">0 / 14 days</span>
   </div>
+  <div class="progress big"><i id="curingProgress"></i></div>
+  <div class="kv"><span>Harvest</span><b id="harvestDate">Not set</b></div>
 
-  <div class="panel">
-    <h3>Curing</h3>
-    <div class="curing-header">
-      <strong id="curingStatus">HARVEST DATE NOT SET</strong>
-      <span id="curingDay">0 / 14 days</span>
-    </div>
-    <div class="progress big"><i id="curingProgress"></i></div>
-    <div class="kv"><span>Harvest</span><b id="harvestDate">Not set</b></div>
-
-    <div class="curing-set">
-      <label>
-        Set Harvest Date
-        <input id="harvestDateInput" type="date">
-      </label>
-      <div class="curing-actions">
-        <button id="saveHarvest" class="primary-btn">Start Curing</button>
-        <button id="clearHarvest" class="reset-btn">Clear</button>
-      </div>
-    </div>
-  </div>
-
-  <div class="panel">
-    <h3>Environment</h3>
-    <div class="environment">
-      <div>
-        <small>Internal</small>
-        <strong id="internalTemp">0.0°C</strong>
-        <span id="internalHumidity">0%</span>
-      </div>
-      <div>
-        <small>External</small>
-        <strong id="externalTemp">0.0°C</strong>
-        <span id="externalHumidity">0%</span>
-      </div>
+  <div class="curing-set">
+    <label>Set Harvest Date
+      <input id="harvestDateInput" type="date">
+    </label>
+    <div class="curing-actions">
+      <button id="saveHarvest" class="primary-btn" type="button">Start Curing</button>
+      <button id="clearHarvest" class="reset-btn" type="button">Clear</button>
     </div>
   </div>
+</div>
+
+<div class="panel">
+  <h3>Environment</h3>
+  <div class="environment">
+    <div>
+      <small>Internal</small>
+      <strong id="internalTemp">0.0°C</strong>
+      <span id="internalHumidity">0%</span>
+    </div>
+    <div>
+      <small>External</small>
+      <strong id="externalTemp">0.0°C</strong>
+      <span id="externalHumidity">0%</span>
+    </div>
+  </div>
+  <div class="kv"><span>DHT Safety Fault</span><b id="dhtSafetyFaultText">NO</b></div>
+</div>
+
 </div>
 
 <div class="section-heading">
@@ -191,40 +213,109 @@
 </div>
 <div id="sensorPreview" class="sensor-grid"></div>
 
-<div class="section-heading"><div><h3>Live Gas Graph</h3></div></div>
-<div class="chart-panel"><canvas id="liveGasChart"></canvas></div>
+<div class="section-heading">
+  <div><h3>Live Gas Graph</h3></div>
+</div>
+<div class="chart-panel">
+  <canvas id="liveGasChart"></canvas>
+</div>
 
 </section>
 
 <!-- ZONES -->
 <section id="zones" class="page">
-  <div class="section-heading"><div><h3>3-Zone Monitor</h3><p>Gas distribution</p></div></div>
+  <div class="section-heading">
+    <div><h3>3-Zone Monitor</h3><p>Gas distribution</p></div>
+  </div>
   <div id="zoneCards" class="zone-grid"></div>
   <div class="chart-panel"><canvas id="zoneChart"></canvas></div>
 </section>
 
 <!-- SENSORS -->
 <section id="sensors" class="page">
-  <div class="section-heading"><div><h3>MQ-135 Sensors</h3><p>Individual sensor readings</p></div></div>
+  <div class="section-heading">
+    <div><h3>MQ-135 Sensors</h3><p>Raw / filtered / baseline-relative readings</p></div>
+  </div>
+
+  <div class="panel mq-status-panel">
+    <div class="kv"><span>Warmup</span><b id="mqWarmupStatus">In progress</b></div>
+    <div class="kv"><span>Calibrated</span><b id="mqCalibratedStatus">NO</b></div>
+    <div class="kv"><span>Calibration Quality</span><b id="mqQualityStatus">--</b></div>
+    <div class="kv"><span>Calibration Variation</span><b id="mqVariationStatus">--</b></div>
+    <p class="ota-help">Calibration and gas warmup controls live on the Controls page.</p>
+  </div>
+
   <div id="allSensors" class="sensor-grid"></div>
+</section>
+
+<!-- AI & RISK -->
+<section id="intelligence" class="page">
+  <div class="section-heading">
+    <div><h3>AI &amp; Risk</h3><p>Local recommendation engine and predictive storage risk</p></div>
+  </div>
+
+  <div class="overview-grid">
+    <div class="panel">
+      <h3>AI Fan Recommendation</h3>
+      <div class="kv"><span>Enabled</span><b id="aiEnabledText">--</b></div>
+      <div class="kv"><span>Requesting Fan</span><b id="aiFanRequestText">--</b></div>
+      <div class="kv"><span>Confidence</span><b id="aiConfidenceText">0%</b></div>
+      <div class="kv"><span>Reason</span><b id="aiReasonText">--</b></div>
+      <p class="ota-help">
+        This is a local heuristic on the ESP32, not a cloud model — it scores humidity,
+        temperature, gas trend, and storage risk to suggest ventilation. Toggle it from Controls.
+      </p>
+    </div>
+
+    <div class="panel">
+      <h3>Storage Risk</h3>
+      <div class="kv"><span>Score</span><b id="riskScoreDetail">0 / 100</b></div>
+      <div class="kv"><span>Level</span><b id="riskLevelDetail">LOW</b></div>
+      <div class="kv"><span>Reason</span><b id="riskReasonDetail">--</b></div>
+      <div class="kv"><span>Humidity contribution</span><b id="riskHumidity">0</b></div>
+      <div class="kv"><span>Temperature contribution</span><b id="riskTemperature">0</b></div>
+      <div class="kv"><span>Gas trend contribution</span><b id="riskGasTrend">0</b></div>
+    </div>
+  </div>
 </section>
 
 <!-- ANALYTICS -->
 <section id="analytics" class="page">
-  <div class="section-heading"><div><h3>Analytics</h3><p>Historical telemetry</p></div></div>
+  <div class="section-heading">
+    <div><h3>Analytics</h3><p>Historical telemetry</p></div>
+  </div>
   <div class="analytics-grid">
     <div class="chart-panel"><h3>Gas</h3><canvas id="gasHistoryChart"></canvas></div>
     <div class="chart-panel"><h3>Temperature</h3><canvas id="temperatureChart"></canvas></div>
     <div class="chart-panel"><h3>Humidity</h3><canvas id="humidityChart"></canvas></div>
     <div class="chart-panel"><h3>Battery</h3><canvas id="batteryChart"></canvas></div>
+    <div class="chart-panel"><h3>Storage Risk</h3><canvas id="riskChart"></canvas></div>
   </div>
 </section>
 
 <!-- CONTROL -->
 <section id="control" class="page">
-  <div class="section-heading"><div><h3>System Controls</h3><p>Remote commands</p></div></div>
+  <div class="section-heading">
+    <div><h3>System Controls</h3><p>Remote commands</p></div>
+  </div>
+
+  <div class="panel hmac-panel">
+    <h3>Command Signing</h3>
+    <p class="ota-help">
+      Restart, AI toggle, MQ calibration, config restore, and firmware deploys are
+      authenticated with HMAC-SHA256 — the ESP32 rejects unsigned commands on those.
+      Paste the same secret configured as <code>OTA_HMAC_SECRET</code> in the firmware.
+      It's kept in memory only for this tab and is never saved to Firebase, localStorage,
+      or sent anywhere except used locally to sign what you submit below.
+    </p>
+    <label>HMAC Secret
+      <input id="hmacSecretInput" type="password" placeholder="Paste OTA_HMAC_SECRET" autocomplete="off">
+    </label>
+    <small id="hmacStatus">Not set — signed commands will be rejected by the device.</small>
+  </div>
 
   <div class="control-grid">
+
     <div class="panel">
       <h3>Fan</h3>
       <div class="control-state">
@@ -233,12 +324,16 @@
       </div>
       <button id="fanToggle" class="large-control" type="button">FAN OFF</button>
       <small>Reason: <b id="activeFanReasonControl">STANDBY</b></small>
+      <p class="unsigned-note">Unsigned — legacy control path.</p>
     </div>
 
     <div class="panel">
       <h3>Buzzer</h3>
-      <div class="control-state"><span id="buzzerIndicator" class="indicator"></span></div>
+      <div class="control-state">
+        <span id="buzzerIndicator" class="indicator"></span>
+      </div>
       <button id="buzzerToggle" class="large-control" type="button">BUZZER OFF</button>
+      <p class="unsigned-note">Unsigned — legacy control path.</p>
     </div>
 
     <div class="panel">
@@ -246,23 +341,58 @@
       <div class="mode-buttons">
         <button id="autoMode" class="mode active" type="button">AUTO</button>
         <button id="remoteMode" class="mode" type="button">REMOTE</button>
+        <button id="maintenanceMode" class="mode" type="button">MAINTENANCE</button>
       </div>
       <p>Current: <b id="controlModeText">AUTO</b></p>
+      <p class="unsigned-note">Unsigned — legacy control path. Maintenance forces the fan off (except gas/DHT/critical safety overrides).</p>
     </div>
 
     <div class="panel emergency-panel">
       <h3>Emergency</h3>
       <p>Activates emergency ventilation and alarm.</p>
       <button id="emergencyBtn" class="emergency-btn" type="button">ACTIVATE EMERGENCY</button>
-      <button id="resetEmergency" class="reset-btn" type="button">RESET</button>
+      <button id="resetEmergency" class="reset-btn full" type="button">RESET</button>
       <p>State: <b id="emergencyState">CLEAR</b></p>
+      <p class="unsigned-note">Unsigned — legacy control path.</p>
+    </div>
+
+    <div class="panel">
+      <h3>AI Recommendation Engine</h3>
+      <p>Current: <b id="aiControlStatus">--</b></p>
+      <button id="aiToggleBtn" class="large-control" type="button">TOGGLE AI</button>
+      <p class="signed-note">Signed command — requires HMAC secret above.</p>
+    </div>
+
+    <div class="panel">
+      <h3>MQ Calibration</h3>
+      <p>Re-baselines all 9 sensors. Requires warmup complete, no active gas alarm.</p>
+      <button id="calibrateMqBtn" class="large-control" type="button">CALIBRATE NOW</button>
+      <p class="signed-note">Signed command — requires HMAC secret above.</p>
+    </div>
+
+    <div class="panel">
+      <h3>Battery Calibration</h3>
+      <p>Measure the pack with a multimeter and enter the true voltage.</p>
+      <label>Reference Voltage
+        <input id="batteryRefInput" type="number" step="0.01" placeholder="12.34">
+      </label>
+      <button id="calibrateBatteryBtn" class="primary-btn full" type="button">CALIBRATE BATTERY</button>
+      <p class="unsigned-note">Unsigned — legacy settings path.</p>
+    </div>
+
+    <div class="panel">
+      <h3>Cloud Config Restore</h3>
+      <p>Restores thresholds and battery offset from the last automatic cloud backup.</p>
+      <button id="restoreConfigBtn" class="large-control" type="button">RESTORE FROM BACKUP</button>
+      <p>Last status: <b id="configRestoreStatus">NONE</b></p>
+      <p class="signed-note">Signed command — requires HMAC secret above.</p>
     </div>
 
     <div class="panel">
       <h3>Device</h3>
-      <p>Manual override switch: <b id="controlManualOverride">OFF</b></p>
-      <p>Restarts the ESP32. In-progress firmware updates are never interrupted.</p>
+      <p>Restarts the ESP32. Refused while a firmware update is in progress.</p>
       <button id="rebootBtn" class="danger-outline full" type="button">RESTART DEVICE</button>
+      <p class="signed-note">Signed command — requires HMAC secret above.</p>
     </div>
   </div>
 </section>
@@ -279,8 +409,8 @@
       <table>
         <thead>
           <tr>
-            <th>Time</th><th>Zone</th><th>Max Gas</th><th>Avg Gas</th>
-            <th>Temp</th><th>Humidity</th><th>Battery</th><th>Fan</th><th>Status</th>
+            <th>Time</th><th>Zone</th><th>Max Gas</th><th>Avg Gas</th><th>Trend</th>
+            <th>Temp</th><th>Humidity</th><th>Battery</th><th>Fan</th><th>Risk</th><th>Status</th>
           </tr>
         </thead>
         <tbody id="historyTable"></tbody>
@@ -289,21 +419,32 @@
   </div>
 </section>
 
+<!-- EVENTS -->
+<section id="events" class="page">
+  <div class="section-heading">
+    <div><h3>Events &amp; Notifications</h3><p id="eventsCount">0 recent</p></div>
+  </div>
+  <div id="eventsList" class="firmware-history">No events yet.</div>
+</section>
+
 <!-- SETTINGS -->
 <section id="settings" class="page">
-  <div class="section-heading"><div><h3>Settings</h3><p>Firebase configuration parameters</p></div></div>
+  <div class="section-heading">
+    <div><h3>Settings</h3><p>Firebase configuration parameters</p></div>
+  </div>
 
   <div class="settings-grid">
+
     <div class="panel">
       <h3>Gas Danger Threshold</h3>
-      <input id="gasThresholdInput" type="number" min="0" max="4095">
-      <button id="saveThreshold" class="primary-btn" type="button">Save</button>
+      <input id="gasThresholdInput" type="number" min="100" max="4095" inputmode="numeric">
+      <button id="saveThreshold" class="primary-btn full" type="button">Save</button>
     </div>
 
     <div class="panel">
       <h3>Gas Warning Threshold</h3>
-      <input id="warningThresholdInput" type="number" min="0" max="4095">
-      <button id="saveWarning" class="primary-btn" type="button">Save</button>
+      <input id="warningThresholdInput" type="number" min="50" max="4095" inputmode="numeric">
+      <button id="saveWarning" class="primary-btn full" type="button">Save</button>
     </div>
 
     <div class="panel">
@@ -312,28 +453,47 @@
       <div class="kv"><span>RSSI</span><b id="wifiRSSI">--</b></div>
       <div class="kv"><span>Firmware</span><b id="firmwareVersion">--</b></div>
       <div class="kv"><span>Hardware</span><b id="hardwareVersion">--</b></div>
+      <div class="kv"><span>Config Version</span><b id="configVersionText">--</b></div>
     </div>
+
   </div>
 </section>
 
 <!-- DIAGNOSTICS -->
 <section id="diagnostics" class="page">
-  <div class="section-heading"><div><h3>Diagnostics</h3><p>ESP32 health</p></div></div>
+  <div class="section-heading">
+    <div><h3>Diagnostics</h3><p>ESP32 system health</p></div>
+  </div>
 
   <div class="diagnostic-grid">
+
     <div class="panel">
       <div class="diag-row"><span>Firebase</span><b id="diagFirebase">--</b></div>
       <div class="diag-row"><span>Wi-Fi</span><b id="diagWiFi">--</b></div>
       <div class="diag-row"><span>DHT Internal</span><b id="diagDhtInt">--</b></div>
       <div class="diag-row"><span>DHT External</span><b id="diagDhtExt">--</b></div>
+      <div class="diag-row"><span>DHT Safety Fault</span><b id="diagDhtSafety">--</b></div>
       <div class="diag-row"><span>Fan Feedback</span><b id="diagFan">--</b></div>
+      <div class="diag-row"><span>Fan Feedback Failures</span><b id="diagFanFailures">--</b></div>
       <div class="diag-row"><span>Heartbeat</span><b id="diagHeartbeat">--</b></div>
+    </div>
+
+    <div class="panel">
+      <div class="diag-row"><span>Reset Reason</span><b id="diagResetReason">--</b></div>
+      <div class="diag-row"><span>Boot Count</span><b id="diagBootCount">--</b></div>
+      <div class="diag-row"><span>Free Heap</span><b id="diagFreeHeap">--</b></div>
+      <div class="diag-row"><span>Min Free Heap</span><b id="diagMinHeap">--</b></div>
+      <div class="diag-row"><span>OTA Rollback Supported</span><b id="diagRollbackSupported">--</b></div>
+      <div class="diag-row"><span>OTA Rollback Pending</span><b id="diagRollbackPending">--</b></div>
+      <div class="diag-row"><span>Offline Events Queued</span><b id="diagOfflineEvents">--</b></div>
+      <div class="diag-row"><span>Recovered Events</span><b id="diagRecoveredEvents">--</b></div>
     </div>
 
     <div class="panel">
       <h3>MQ-135 Health</h3>
       <div id="mqDiagnostics"></div>
     </div>
+
   </div>
 </section>
 
@@ -341,7 +501,7 @@
 <section id="firmware" class="page">
 
 <div class="section-heading">
-  <div><h3>Firmware Management</h3><p>Cloud OTA firmware management</p></div>
+  <div><h3>Firmware Management</h3><p>Signed GitHub-hosted OTA</p></div>
   <span id="otaBadge" class="badge safe">OTA READY</span>
 </div>
 
@@ -353,17 +513,18 @@
   <div class="kv"><span>Version</span><b id="otaCurrentVersion">--</b></div>
   <div class="kv"><span>Build</span><b id="otaCurrentBuild">--</b></div>
   <div class="kv"><span>Hardware</span><b id="otaCurrentHardware">--</b></div>
-  <div class="kv"><span>Source</span><b id="otaSource">--</b></div>
   <div class="kv"><span>OTA State</span><b id="otaState">--</b></div>
   <div class="kv"><span>Progress</span><b id="otaProgressText">0%</b></div>
+  <div class="kv"><span>Rollback Pending</span><b id="otaRollbackPendingText">--</b></div>
 </div>
 
 <div class="panel">
-  <h3>Publish GitHub Release</h3>
+  <h3>Deploy Signed Release</h3>
   <p class="ota-help">
-    Firmware is no longer hosted in Firebase Storage — the ESP32 downloads
-    the <code>.bin</code> straight from a GitHub Release asset. Publish the
-    release on GitHub first, then register it here so it can be deployed.
+    Publish the <code>.bin</code> as a GitHub Release asset yourself first. Pick the same
+    file here to compute its hash locally, paste the asset URL, then this signs a manifest
+    with your HMAC secret (set on the Controls page) and sends it straight to the device —
+    there's no separate "latest" staging step anymore.
   </p>
 
   <label>1. Pick the same `.bin` locally to compute its hash
@@ -376,36 +537,20 @@
   <small id="hashStatus">No file selected.</small>
 
   <label>2. GitHub Release asset URL
-    <input id="firmwareUrlInput" type="url" placeholder="https://github.com/user/repo/releases/download/v3.3.0/firmware.bin">
+    <input id="firmwareUrlInput" type="url" placeholder="https://github.com/user/repo/releases/download/v5.0.1/firmware.bin">
   </label>
   <label>Version
-    <input id="firmwareVersionInput" type="text" placeholder="3.3.0">
+    <input id="firmwareVersionInput" type="text" placeholder="5.0.1">
   </label>
   <label>Build
-    <input id="firmwareBuildInput" type="number" placeholder="330">
+    <input id="firmwareBuildInput" type="number" placeholder="501">
   </label>
   <label>Hardware
     <input id="firmwareHardwareInput" type="text" value="ESP32-DOIT-V1">
   </label>
-  <label>Release Notes
-    <textarea id="releaseNotesInput" placeholder="Bug fixes and improvements"></textarea>
-  </label>
-  <button id="publishFirmware" class="primary-btn full" type="button">REGISTER RELEASE</button>
-  <small id="uploadStatus">Select the `.bin` to compute its hash, then fill in the GitHub URL.</small>
-</div>
-
-<div class="panel">
-  <h3>Latest Firmware</h3>
-  <div class="kv"><span>Version</span><b id="otaLatestVersion">--</b></div>
-  <div class="kv"><span>Build</span><b id="otaLatestBuild">--</b></div>
-  <div class="kv"><span>Target</span><b id="otaTarget">--</b></div>
-  <div class="hash-box">
-    <span>SHA-256</span>
-    <code id="otaHash">--</code>
-  </div>
-  <button id="deployLatest" class="primary-btn full" type="button" disabled>DEPLOY LATEST</button>
-  <button id="clearOtaCommand" class="reset-btn full" type="button">CLEAR OTA COMMAND</button>
-  <p id="deployInfo" class="ota-info">Waiting for firmware.</p>
+  <button id="deploySignedFirmware" class="primary-btn full" type="button">SIGN &amp; DEPLOY</button>
+  <small id="uploadStatus">Select the `.bin` to compute its hash, then fill in the fields above.</small>
+  <p class="signed-note">Signed command — requires HMAC secret set on the Controls page.</p>
 </div>
 
 <div class="panel">
@@ -414,13 +559,15 @@
 </div>
 
 </div>
+
 </section>
 
 </main>
 </div>
 
-<div id="toast" class="toast"></div>
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
 
 <script type="module" src="app.js"></script>
+
 </body>
 </html>
